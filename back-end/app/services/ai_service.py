@@ -120,7 +120,7 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
         dangerous_phrases=[str(p) for p in dangerous_phrases],
         summary=summary,
     )
-from models import ImageAnalyzeResponse
+from app.models.schemas import ImageAnalyzeResponse
 
 
 def analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse:
@@ -139,5 +139,4 @@ def analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse:
         anomalies=[],
         summary="Изображение выглядит в целом реалистичным. Низкая вероятность ИИ-генерации.",
     )
-
 

@@ -43,6 +43,45 @@ const App: React.FC = () => {
     <div className="app-root">
       <GradientBackground />
 
+      {/* ВЕРХНЕЕ МЕНЮ */}
+      <header className="top-nav">
+        <div className="top-nav__group">
+          <button
+            type="button"
+            className="nav-pill nav-pill--ghost"
+            onClick={() => {
+              // пока заглушка — потом сюда повесишь смену языка
+              console.log("Language switch clicked");
+            }}
+          >
+            <span className="nav-pill__icon" aria-hidden="true">
+              🌐
+            </span>
+            <span className="nav-pill__label">EN</span>
+          </button>
+
+          <button
+            type="button"
+            className="nav-pill nav-pill--ghost"
+            onClick={() => {
+              console.log("Log in clicked");
+            }}
+          >
+            Log in
+          </button>
+
+          <button
+            type="button"
+            className="nav-pill nav-pill--primary"
+            onClick={() => {
+              console.log("Sign up clicked");
+            }}
+          >
+            Sign up
+          </button>
+        </div>
+      </header>
+
       <WelcomeSection
         value={displayValue}
         hasSubmitted={hasSubmitted}

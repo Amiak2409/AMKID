@@ -1,5 +1,8 @@
 import pytest
 import uuid
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from sqlalchemy.orm import Session
 from app.models.database_ops import (
     SessionLocal,

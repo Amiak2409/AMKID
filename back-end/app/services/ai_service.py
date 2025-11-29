@@ -19,6 +19,100 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
+import math
+from typing import List
+
+
+def compute_trust_score(
+    *,
+    ai_likeliness: float,
+    manipulation_score: float,
+    emotion_intensity: float,
+    claims: List[ClaimEvaluation],
+    dangerous_phrases: List[str],
+) -> int:
+    """
+    Считает итоговый trust_score 0–100 на основе 5 осей:
+    - factual_score      : достоверность
+    - authenticity_score : похожесть на человеческий текст
+    - integrity_score    : отсутствие манипуляций
+    - tone_score         : адекватность эмоционального тона
+    - safety_score       : отсутствие опасных формулировок
+
+    Используем ВЗВЕШЕННОЕ ГЕОМЕТРИЧЕСКОЕ СРЕДНЕЕ,
+    чтобы низкий балл по одной оси сильно бил по общему доверию.
+    """
+
+    # ---------- 1. FACTUAL: фактическая достоверность ----------
+    if claims:
+        avg_truth = sum(c.true_likeliness for c in claims) / len(claims)
+    else:
+        # если модель не выделила утверждений, считаем умеренно правдивым
+        avg_truth = 0.6
+
+    factual_score = avg_truth * 100.0  # 0–100
+
+    # ---------- 2. AUTHENTICITY: насколько это не ИИ ----------
+    # 1.0 = точно ИИ, 0.0 = точно человек
+    authenticity_score = (1.0 - ai_likeliness) * 100.0
+
+    # ---------- 3. INTEGRITY: отсутствие манипуляций ----------
+    integrity_score = (1.0 - manipulation_score) * 100.0
+
+    # ---------- 4. TONE: эмоциональная адекватность ----------
+    # до 0.4 — нейтральный тон (штрафа нет)
+    # 0.4–0.7 — мягкий штраф
+    # 0.7–1.0 — агрессивный/панический тон, сильный штраф
+    if emotion_intensity <= 0.4:
+        tone_score = 100.0
+    elif emotion_intensity <= 0.7:
+        # линейно падаем до 70
+        frac = (emotion_intensity - 0.4) / 0.3  # 0–1
+        tone_score = 100.0 - 30.0 * frac        # до 70
+    else:
+        frac = (emotion_intensity - 0.7) / 0.3  # 0–1
+        tone_score = 70.0 - 40.0 * frac         # до 30
+
+    tone_score = max(0.0, tone_score)
+
+    # ---------- 5. SAFETY: опасные фразы ----------
+    n_danger = len(dangerous_phrases)
+    # экспоненциальный штраф: каждая фраза уменьшает безопасность,
+    # но вклад затухает
+    safety_score = 100.0 * math.exp(-0.35 * n_danger)
+    # для 1 фразы ~70, для 2 ~50, для 3 ~36, дальше → в ноль
+
+    # ---------- Взвешенное геометрическое среднее ----------
+    # веса важности осей (можно показывать на слайде)
+    w_factual = 3.0
+    w_auth    = 2.0
+    w_integ   = 3.0
+    w_tone    = 1.5
+    w_safety  = 2.5
+
+    # нормируем в [0,1], добавляем +1e-6 чтобы не было log(0)
+    s_f = max(factual_score / 100.0, 1e-6)
+    s_a = max(authenticity_score / 100.0, 1e-6)
+    s_i = max(integrity_score / 100.0, 1e-6)
+    s_t = max(tone_score / 100.0, 1e-6)
+    s_s = max(safety_score / 100.0, 1e-6)
+
+    total_weight = w_factual + w_auth + w_integ + w_tone + w_safety
+
+    # логарифмическая форма геометрического среднего:
+    log_trust = (
+        w_factual * math.log(s_f)
+        + w_auth  * math.log(s_a)
+        + w_integ * math.log(s_i)
+        + w_tone  * math.log(s_t)
+        + w_safety* math.log(s_s)
+    ) / total_weight
+
+    trust = math.exp(log_trust) * 100.0
+    trust = max(0, min(100, int(round(trust))))
+
+    return trust
+
 
 def analyze_text(content: str) -> TextAnalyzeResponse:
     """
@@ -92,24 +186,31 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
     ai_likeliness = float(data.get("ai_likeliness", 0.0))
     manipulation_score = float(data.get("manipulation_score", 0.0))
     emotion_intensity = float(data.get("emotion_intensity", 0.0))
-    dangerous_phrases = data.get("dangerous_phrases", []) or []
+    dangerous_phrases_raw = data.get("dangerous_phrases", []) or []
     claims_raw = data.get("claims_evaluation", []) or []
-    summary = data.get("summary", "")
+    summary = data.get("summary", "") or ""
 
-    trust = 100
-    trust -= ai_likeliness * 20
-    trust -= manipulation_score * 40
-    trust -= emotion_intensity * 20
-    trust = max(0, min(100, int(trust)))
-
-    claims = [
-        ClaimEvaluation(
-            text=str(c.get("text", "")),
-            true_likeliness=float(c.get("true_likeliness", 0.0)),
-            comment=str(c.get("comment", "")),
+    # конвертируем claims
+    claims: List[ClaimEvaluation] = []
+    for c in claims_raw:
+        claims.append(
+            ClaimEvaluation(
+                text=str(c.get("text", "")),
+                true_likeliness=float(c.get("true_likeliness", 0.0)),
+                comment=str(c.get("comment", "")),
+            )
         )
-        for c in claims_raw
-    ]
+
+    dangerous_phrases = [str(p) for p in dangerous_phrases_raw]
+
+
+    trust = compute_trust_score(
+        ai_likeliness=ai_likeliness,
+        manipulation_score=manipulation_score,
+        emotion_intensity=emotion_intensity,
+        claims=claims,
+        dangerous_phrases=dangerous_phrases,
+    )
 
     return TextAnalyzeResponse(
         trust_score=trust,
@@ -117,9 +218,11 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
         manipulation_score=manipulation_score,
         emotion_intensity=emotion_intensity,
         claims_evaluation=claims,
-        dangerous_phrases=[str(p) for p in dangerous_phrases],
+        dangerous_phrases=dangerous_phrases,
         summary=summary,
     )
+
+
 from app.models.schemas import ImageAnalyzeResponse
 
 

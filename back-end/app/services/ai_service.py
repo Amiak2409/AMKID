@@ -1,26 +1,124 @@
 import os
 import json
 import logging
+import math
+from typing import List, Dict, Any, Optional
 
+import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from app.models.schemas import TextAnalyzeResponse, ImageAnalyzeResponse, ClaimEvaluation
+from app.models.schemas import (
+    TextAnalyzeResponse,
+    ImageAnalyzeResponse,
+    ClaimEvaluation,
+)
 
-# логи
+# ----------------- ЛОГИ -----------------
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# ----------------- ENV -----------------
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
+zerogpt_api_key = os.getenv("ZEROGPT_API_KEY")
 
 if not api_key:
     raise RuntimeError("OPENAI_API_KEY не найден. Проверь файл .env в корне проекта.")
 
 client = OpenAI(api_key=api_key)
 
-import math
-from typing import List
+
+# =====================================================================
+#                       ZeroGPT интеграция
+# =====================================================================
+
+ZEROGPT_ENDPOINT = "https://api.zerogpt.com/api/detect/detectText"
+
+
+def check_text_with_zerogpt(text: str) -> Optional[float]:
+    """
+    Отправляет текст в ZeroGPT и возвращает оценку ИИ-контента в диапазоне [0.0, 1.0],
+    либо None в случае ошибки.
+
+    В реальном ответе ZeroGPT (по логам) структура такая:
+
+    {
+      "success": true,
+      "code": 200,
+      "message": "...",
+      "data": {
+        "isHuman": 0,
+        "fakePercentage": 100.0,
+        ...
+      }
+    }
+
+    Здесь fakePercentage — это вероятность AI-текста (0–100).
+    """
+
+    if not zerogpt_api_key:
+        logger.info("ZEROGPT_API_KEY не задан. Пропускаю проверку ZeroGPT.")
+        return None
+
+    headers = {
+        "ApiKey": zerogpt_api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {"input_text": text}
+
+    try:
+        resp = requests.post(
+            ZEROGPT_ENDPOINT,
+            headers=headers,
+            data=json.dumps(payload),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        outer: Dict[str, Any] = resp.json()
+    except requests.exceptions.RequestException as e:
+        logger.warning("Не удалось обратиться к ZeroGPT: %s", e)
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning("ZeroGPT вернул не-JSON: %s", e)
+        return None
+
+    # Проверяем общую «успешность»
+    if not outer.get("success", False):
+        logger.warning("ZeroGPT success=False: %r", outer)
+        return None
+
+    data = outer.get("data") or {}
+
+    # Основное поле: fakePercentage (0–100)
+    ai_percent = data.get("fakePercentage")
+
+    # На всякий случай оставим бэкап-пути
+    if ai_percent is None:
+        for key in ("ai_percentage", "ai_score", "aiProbability", "ai_probability"):
+            if key in outer:
+                ai_percent = outer[key]
+                break
+
+    if ai_percent is None:
+        logger.warning("ZeroGPT ответ без понятного поля процента AI: %r", outer)
+        return None
+
+    try:
+        ai_percent = float(ai_percent)
+    except (TypeError, ValueError):
+        logger.warning("ai_percent из ZeroGPT не число: %r", ai_percent)
+        return None
+
+    ai_likelihood = max(0.0, min(1.0, ai_percent / 100.0))
+    logger.info("ZeroGPT ai_likelihood=%.3f (из %s%%)", ai_likelihood, ai_percent)
+    return ai_likelihood
+
+
+
+# =====================================================================
+#                "Крутой" алгоритм расчета trust_score
+# =====================================================================
 
 
 def compute_trust_score(
@@ -60,13 +158,9 @@ def compute_trust_score(
     integrity_score = (1.0 - manipulation_score) * 100.0
 
     # ---------- 4. TONE: эмоциональная адекватность ----------
-    # до 0.4 — нейтральный тон (штрафа нет)
-    # 0.4–0.7 — мягкий штраф
-    # 0.7–1.0 — агрессивный/панический тон, сильный штраф
     if emotion_intensity <= 0.4:
         tone_score = 100.0
     elif emotion_intensity <= 0.7:
-        # линейно падаем до 70
         frac = (emotion_intensity - 0.4) / 0.3  # 0–1
         tone_score = 100.0 - 30.0 * frac        # до 70
     else:
@@ -77,20 +171,15 @@ def compute_trust_score(
 
     # ---------- 5. SAFETY: опасные фразы ----------
     n_danger = len(dangerous_phrases)
-    # экспоненциальный штраф: каждая фраза уменьшает безопасность,
-    # но вклад затухает
     safety_score = 100.0 * math.exp(-0.35 * n_danger)
-    # для 1 фразы ~70, для 2 ~50, для 3 ~36, дальше → в ноль
 
     # ---------- Взвешенное геометрическое среднее ----------
-    # веса важности осей (можно показывать на слайде)
     w_factual = 3.0
     w_auth    = 2.0
     w_integ   = 3.0
     w_tone    = 1.5
     w_safety  = 2.5
 
-    # нормируем в [0,1], добавляем +1e-6 чтобы не было log(0)
     s_f = max(factual_score / 100.0, 1e-6)
     s_a = max(authenticity_score / 100.0, 1e-6)
     s_i = max(integrity_score / 100.0, 1e-6)
@@ -99,7 +188,6 @@ def compute_trust_score(
 
     total_weight = w_factual + w_auth + w_integ + w_tone + w_safety
 
-    # логарифмическая форма геометрического среднего:
     log_trust = (
         w_factual * math.log(s_f)
         + w_auth  * math.log(s_a)
@@ -110,13 +198,17 @@ def compute_trust_score(
 
     trust = math.exp(log_trust) * 100.0
     trust = max(0, min(100, int(round(trust))))
-
     return trust
+
+
+# =====================================================================
+#                            OpenAI анализ текста
+# =====================================================================
 
 
 def analyze_text(content: str) -> TextAnalyzeResponse:
     """
-    Анализ текста через OpenAI.
+    Анализ текста через OpenAI + (опционально) ZeroGPT.
     Если что-то ломается — логируем и возвращаем безопасный дефолтный ответ,
     чтобы фронт не получал 500.
     """
@@ -155,7 +247,6 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
         )
     except Exception as e:
         logger.exception("Ошибка при обращении к OpenAI: %s", e)
-        # Фоллбек-ответ, когда API недоступен
         return TextAnalyzeResponse(
             trust_score=50,
             ai_likeliness=0.0,
@@ -172,7 +263,6 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
         data = json.loads(raw)
     except json.JSONDecodeError:
         logger.exception("Не удалось распарсить JSON от модели. raw=%r", raw)
-        # Ещё один фоллбек, если модель вернула кривой JSON
         return TextAnalyzeResponse(
             trust_score=50,
             ai_likeliness=0.0,
@@ -190,7 +280,6 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
     claims_raw = data.get("claims_evaluation", []) or []
     summary = data.get("summary", "") or ""
 
-    # конвертируем claims
     claims: List[ClaimEvaluation] = []
     for c in claims_raw:
         claims.append(
@@ -203,6 +292,20 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
 
     dangerous_phrases = [str(p) for p in dangerous_phrases_raw]
 
+    # ---------- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА ЧЕРЕЗ ZeroGPT ----------
+    zerogpt_ai = check_text_with_zerogpt(content)
+    if zerogpt_ai is not None:
+        # комбинируем оценки: 60% доверия ZeroGPT, 40% — OpenAI
+        combined_ai = 0.6 * zerogpt_ai + 0.4 * ai_likeliness
+        logger.info(
+            "Комбинированный ai_likeliness: openai=%.3f, zerogpt=%.3f -> combined=%.3f",
+            ai_likeliness,
+            zerogpt_ai,
+            combined_ai,
+        )
+        ai_likeliness = combined_ai
+    else:
+        logger.info("Используем только ai_likeliness от OpenAI: %.3f", ai_likeliness)
 
     trust = compute_trust_score(
         ai_likeliness=ai_likeliness,
@@ -223,17 +326,16 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
     )
 
 
-from app.models.schemas import ImageAnalyzeResponse
+# =====================================================================
+#                          Анализ изображения
+# =====================================================================
 
 
 def analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse:
     """
     Анализ изображения через OpenAI (Vision).
-    Если хочешь — ниже дам продвинутую версию с реальным вызовом модели.
-    Пока — стабильная версия без падений, чтобы хакатон работал.
+    Пока — стабильная заглушка, чтобы не ломать фронт.
     """
-
-    # Пример базовой логики, чтобы система работала без ошибок
     return ImageAnalyzeResponse(
         trust_score=70,
         ai_likeliness=0.4,
@@ -242,4 +344,3 @@ def analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse:
         anomalies=[],
         summary="Изображение выглядит в целом реалистичным. Низкая вероятность ИИ-генерации.",
     )
-

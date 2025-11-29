@@ -4,8 +4,8 @@ from datetime import datetime
 from typing import List, Optional, Any, Dict
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, String, Float, DateTime, ForeignKey, Text
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
+from sqlalchemy import create_engine, Column, String, Float, DateTime, ForeignKey, Text, desc # <-- desc добавлен
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session, joinedload # <-- joinedload добавлен
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.exc import OperationalError
 
@@ -55,7 +55,7 @@ class Submission(Base):
     id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # user_id UUID
-    user_id: Optional[UUID] = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)    
+    user_id: Optional[UUID] = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True, index=True)    
     
     # media_type VARCHAR(10) NOT NULL
     media_type: str = Column(String(10), nullable=False) 
@@ -146,6 +146,36 @@ def create_submission(db: Session, media_type: str, media_url: str, user_id: Opt
     db.refresh(new_submission)
     return new_submission
 
+def get_user_history_submissions_optimized(db: Session, user_id: int):
+    """
+    Оптимизированный запрос: получает все заявки пользователя
+    за ОДИН SQL-запрос, избегая проблемы N+1.
+    """
+    
+    # Мы запрашиваем Submission, а не User, так как нам нужен список Submission
+    submissions = (
+        db.query(Submission)
+        .filter(Submission.user_id == user_id)
+        # ОПЦИЯ: Предзагрузка TrustScore, чтобы избежать N+1 при доступе к вердикту
+        .options(joinedload(Submission.trust_score)) 
+        # Сортировка по дате создания
+        .order_by(desc(Submission.created_at)) 
+        .all()
+    )
+    
+    # Дальнейшая обработка и форматирование (как в предыдущем ответе)
+    history_data = [
+        {
+            "submission_id": sub.id,
+            "status": sub.status,
+            "created_at": sub.created_at.isoformat(),
+            # TrustScore уже загружен (благодаря joinedload), обращение к нему быстрое
+            "final_verdict": sub.trust_score.verdict if sub.trust_score else "PENDING"
+        } 
+        for sub in submissions
+    ]
+    
+    return history_data
 
 def get_pending_submissions(db: Session, limit: int = 10) -> List[Submission]:
     """Извлекает заявки со статусом 'pending' для обработки ML-воркером."""
@@ -164,7 +194,7 @@ def update_submission_status(db: Session, submission_id: UUID, new_status: str, 
         return submission
     return None
 
-def create_trust_score(db: Session, submission_id: UUID, fake_probability: float, verdict: str, ai_metadata: Dict[str, Any] = None) -> TrustScore:
+def create_trust_score(db: Session, submission_id: UUID, fake_probability: float, verdict: str, ai_metadata: Dict[str, Any] = None, commit: bool = True) -> TrustScore:
     """Создает запись результата анализа в таблице trust_scores."""
     new_score = TrustScore(
         submission_id=submission_id,

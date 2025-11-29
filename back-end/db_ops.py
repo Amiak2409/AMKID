@@ -33,8 +33,20 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+class User(Base):
+    """Таблица users (Пользователи)"""
+    __tablename__ = "users"
 
-# ОПРЕДЕЛЕНИЕ МОДЕЛЕЙ (СХЕМА ТАБЛИЦ)
+    id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username: str = Column(String(100), unique=True, nullable=False)
+    created_at: datetime = Column(DateTime(timezone=True), default=datetime.now)
+
+    # Отношение: Один пользователь может иметь много заявок (обратная связь)
+    submissions = relationship("Submission", back_populates="user")
+    
+    def __repr__(self):
+        return f"<User(id={self.id}, username={self.username})>"
+    
 class Submission(Base):
     """Таблица submissions (Входящие данные)"""
     __tablename__ = "submissions"
@@ -43,7 +55,7 @@ class Submission(Base):
     id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # user_id UUID
-    user_id: Optional[UUID] = Column(UUID(as_uuid=True), nullable=True) 
+    user_id: Optional[UUID] = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)    
     
     # media_type VARCHAR(10) NOT NULL
     media_type: str = Column(String(10), nullable=False) 
@@ -62,6 +74,7 @@ class Submission(Base):
     updated_at: datetime = Column(DateTime(timezone=True), default=datetime.now, onupdate=datetime.now)
 
     # Связь с результатами
+    user = relationship("User", back_populates="submissions")
     trust_score = relationship("TrustScore", back_populates="submission", uselist=False)
 
     def __repr__(self):
@@ -111,6 +124,14 @@ def create_db_and_tables():
         print(f"Детали ошибки: {e}")
         exit(1)
 
+# --- НОВАЯ ФУНКЦИЯ: CREATE_USER ---
+def create_user(db: Session, username: str) -> User:
+    """Создает нового пользователя."""
+    new_user = User(username=username)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
 
 def create_submission(db: Session, media_type: str, media_url: str, user_id: Optional[UUID] = None, content_text: Optional[str] = None) -> Submission:
     """Создает новую заявку в таблице submissions."""

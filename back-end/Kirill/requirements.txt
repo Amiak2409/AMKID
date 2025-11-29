@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-python-multipart
-python-dotenv
-openai>=1.0.0
-pydantic

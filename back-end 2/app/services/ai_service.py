@@ -5,7 +5,7 @@ import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from models import TextAnalyzeResponse, ImageAnalyzeResponse, ClaimEvaluation
+from app.models.schemas import TextAnalyzeResponse, ImageAnalyzeResponse, ClaimEvaluation
 
 # логи
 logger = logging.getLogger(__name__)

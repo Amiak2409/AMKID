@@ -1,0 +1,22 @@
+# PyCharm / IntelliJ
+.idea/
+*.iml
+
+# Виртуальные окружения
+venv/
+.env/
+.env
+.venv/
+
+# Python-байткод
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Логи
+*.log
+
+# Системный мусор
+.DS_Store
+Thumbs.db

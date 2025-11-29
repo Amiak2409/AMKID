@@ -1,0 +1,238 @@
+:root {
+  color-scheme: dark;
+  --bg: #050816;
+  --panel: #0b1120;
+  --panel-soft: #020617;
+  --border-subtle: #1f2937;
+  --accent: #10a37f;
+  --accent-soft: rgba(16, 163, 127, 0.1);
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.55);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top, #111827 0, #020617 45%, #000 100%);
+  color: var(--text);
+}
+
+/* КОРНЕВОЙ КОНТЕЙНЕР */
+
+.app-root {
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ВЕРХНЕЕ ПОЛЕ ВВОДА (glassmorphism) */
+
+.question-shell {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  max-width: 560px;
+  padding: 0 12px;
+  transition: top 0.6s ease, transform 0.6s ease;
+  z-index: 20;
+}
+
+.question-shell--pinned {
+  top: 20px;
+  transform: translateX(-50%);
+}
+
+.question-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.hero-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.hero-title {
+  margin: 4px 0 0;
+  font-size: 32px;
+  letter-spacing: 0.02em;
+}
+
+.hero-form {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* glassmorphism-инпут */
+
+.hero-input {
+  flex: 1 1 220px;
+  max-width: 360px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 9px 12px;
+  outline: none;
+  font-size: 14px;
+  color: var(--text);
+
+  background: rgba(15, 23, 42, 0.55);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+.hero-input::placeholder {
+  color: var(--muted);
+}
+
+.hero-input:focus {
+  border-color: rgba(16, 163, 127, 0.9);
+  box-shadow: 0 0 0 1px rgba(16, 163, 127, 0.7);
+}
+
+.hero-button {
+  border-radius: 999px;
+  padding: 9px 18px;
+  border: none;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  min-width: 90px;
+  transition: background 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
+  box-shadow: 0 0 0 rgba(16, 163, 127, 0.3);
+}
+
+.hero-button:hover {
+  background: #16a085;
+  box-shadow: 0 0 0 1px rgba(16, 163, 127, 0.4);
+}
+
+.hero-button:active {
+  transform: translateY(1px);
+}
+
+/* ЦЕНТРАЛЬНЫЙ БЛОК ОТВЕТА (glassmorphism) */
+
+.chat-shell {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  opacity: 0;
+  transform: translateY(24px) scale(0.98);
+  transition: opacity 0.6s ease 0.1s, transform 0.6s ease 0.1s;
+}
+
+.chat-shell--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* стеклянная карточка ответа */
+
+.chat-container {
+  padding: 18px 20px 20px;
+  border-radius: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-container--glass {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 22px 45px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+}
+
+/* Заголовок и результат */
+
+.chat-header {
+  padding: 4px 2px 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-header-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.chat-header-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chat-main {
+  flex: 1 1 auto;
+  margin-top: 8px;
+}
+
+.chat-result {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.chat-result-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* АДАПТИВ */
+
+@media (max-width: 640px) {
+  .app-root {
+    padding-inline: 10px;
+  }
+
+  .question-shell {
+    padding-inline: 8px;
+  }
+
+  .hero-title {
+    font-size: 26px;
+  }
+
+  .chat-container {
+    padding-inline: 14px;
+  }
+}

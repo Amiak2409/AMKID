@@ -136,7 +136,7 @@ def update_submission_status(db: Session, submission_id: UUID, new_status: str, 
     submission = db.query(Submission).filter(Submission.id == submission_id).first()
     if submission:
         submission.status = new_status
-        submission.updated_at = datetime.now() # Обновляем время 
+        submission.updated_at = datetime.now() 
         if commit:
             db.commit()
             db.refresh(submission)

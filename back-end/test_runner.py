@@ -2,7 +2,6 @@ import uuid
 import json
 from typing import Dict, Any, List
 
-# Импортируем все необходимое из нашего модуля работы с БД
 from db_ops import (
     SessionLocal,
     create_db_and_tables,
@@ -20,13 +19,12 @@ class DatabaseTester:
     системы: Frontend -> DB -> Worker -> DB -> Frontend.
     """
     def __init__(self):
-        # Здесь мы будем хранить ID заявок, созданных в процессе тестирования
         self.test_submission_ids: List[uuid.UUID] = []
 
     def _simulate_frontend_uploads(self) -> uuid.UUID:
         """Имитирует загрузку нескольких файлов с веб-интерфейса."""
         
-        # 1. Текстовая заявка
+        # Текстовая заявка
         text_sub = create_submission(
             SessionLocal(), 
             media_type='text', 
@@ -36,7 +34,7 @@ class DatabaseTester:
         self.test_submission_ids.append(text_sub.id)
         print(f"➕ [Frontend] Создана заявка TEXT: {text_sub.id}")
 
-        # 2. Видео-заявка (для обработки)
+        # Видео-заявка (для обработки)
         video_sub = create_submission(
             SessionLocal(), 
             media_type='video', 
@@ -51,12 +49,12 @@ class DatabaseTester:
     def _simulate_ml_worker_process(self, task_id: uuid.UUID):
         """Имитирует работу ML-воркера: берет задачу, обрабатывает, сохраняет результат."""
         
-        # 1. Смена статуса на 'processing'
+        # Смена статуса на 'processing'
         with SessionLocal() as db:
             update_submission_status(db, task_id, 'processing')
             print(f"🔄 [ML Worker] Статус заявки {task_id} изменен на 'processing'.")
             
-            # 2. Имитация результата от нейросети
+            # Имитация результата от нейросети
             fake_prob: float = 0.98
             verdict: str = "HIGH_RISK_DEEPFAKE"
             metadata: Dict[str, Any] = {
@@ -65,7 +63,7 @@ class DatabaseTester:
                 "model_version": "DeepFakeDetector_v2.1"
             }
 
-            # 3. Сохранение результата в trust_scores
+            # Сохранение результата в trust_scores
             score = create_trust_score(
                 db, 
                 task_id, 
@@ -75,7 +73,7 @@ class DatabaseTester:
             )
             print(f"➕ [ML Worker] Создан результат в TrustScore: {score.id}")
             
-            # 4. Смена статуса на 'completed'
+            # Смена статуса на 'completed'
             update_submission_status(db, task_id, 'completed')
             print(f"✅ [ML Worker] Обработка завершена, статус 'completed'.")
 
@@ -92,7 +90,7 @@ class DatabaseTester:
                 print(f"   Финальный статус: {final_submission.status}")
                 print(f"   Процент фейка: {final_submission.trust_score.fake_probability:.2f}")
                 print(f"   Вердикт: {final_submission.trust_score.verdict}")
-                # Выводим JSON красиво
+                
                 print(f"   Метаданные ИИ: \n{json.dumps(final_submission.trust_score.ai_metadata, indent=2, ensure_ascii=False)}")
             else:
                 print("❌ Не удалось найти финальный результат.")

@@ -158,6 +158,19 @@ resulting in behavior closer to real-world risk models (banking, insurance).
 - Hugging Face Vision (for image analysis)  
 - ZeroGPT API (for detecting AI texts)  
 
+✨ Additional AI Components
+🔥 Sentiment Classification Module (Positive / Negative Text Classifier)
+
+AMKID also includes a custom-trained sentiment classification model capable of distinguishing between positive and negative user text.
+The model is trained on real-world English datasets and can detect:
+
+😊 Positive tone
+
+😡 Negative or aggressive tone
+
+⚠️ Emotional polarity for deeper Trust Score analysis
+
+This module is fully integrated into the backend and can be used independently or as part of the Trust Score calculation pipeline.
 ---
 
 # 🏆 Potential Use Cases

@@ -1,6 +1,14 @@
 // App.tsx
-import React, { useState, useEffect, useRef } from "react";
-import { sendChatMessage, sendImageMessage } from "./api/chat";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  sendChatMessage,
+  sendImageMessage,
+  getAuthToken,
+  logout as apiLogout,
+  fetchHistory,
+  deleteHistoryItem,
+  clearServerHistory,
+} from "./api/chat";
 import { useTypewriter } from "./hooks/useTypewriter";
 import { GradientBackground } from "./components/GradientBackground";
 import { WelcomeSection } from "./components/WelcomeSection";
@@ -48,6 +56,11 @@ interface HistoryEntry {
 }
 
 const HISTORY_STORAGE_KEY = "amkid_history_v1";
+const USER_EMAIL_STORAGE_KEY = "amkid_user_email";
+
+type CurrentUser = {
+  email: string;
+};
 
 const App: React.FC = () => {
   const [welcomeInput, setWelcomeInput] = useState("");
@@ -64,6 +77,9 @@ const App: React.FC = () => {
   // ИСТОРИЯ
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+
+  // ТЕКУЩИЙ ПОЛЬЗОВАТЕЛЬ
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   // в каком режиме был последний ответ (text / image)
   const [lastResponseMode, setLastResponseMode] = useState<"text" | "image">("text");
@@ -136,9 +152,59 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // ЗАГРУЗКА истории из localStorage при старте
+  // Загрузка истории пользователя с бэка
+  const loadServerHistory = useCallback(async () => {
+  const token = getAuthToken();
+  if (!token) return;
+
+  try {
+    const serverItems = await fetchHistory();
+
+    const mapped: HistoryEntry[] = serverItems.map((item: any) => {
+      // raw_response с бэка может быть либо строкой, либо объектом (JSONB)
+      const rawResponseStr =
+        typeof item.raw_response === "string"
+          ? item.raw_response
+          : JSON.stringify(item.raw_response ?? {});
+
+      return {
+        id: item.id,
+        question: item.question ?? "",
+        rawResponse: rawResponseStr,
+        createdAt: item.created_at,
+        kind: item.kind === "image" ? "image" : "text",
+      };
+    });
+
+    setHistory(mapped);
+  } catch (error) {
+    console.error("Failed to load history from API", error);
+  }
+}, []);
+
+
+  // ЗАГРУЗКА истории при старте: либо сервер, либо localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    const token = getAuthToken();
+
+    if (token) {
+      // пробуем восстановить email
+      try {
+        const storedEmail = window.localStorage.getItem(USER_EMAIL_STORAGE_KEY);
+        if (storedEmail) {
+          setCurrentUser({ email: storedEmail });
+        }
+      } catch {
+        // ignore
+      }
+
+      void loadServerHistory();
+      return;
+    }
+
+    // анонимный режим — история из localStorage
     try {
       const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
       if (!raw) return;
@@ -157,9 +223,9 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Failed to read history from localStorage", error);
     }
-  }, []);
+  }, [loadServerHistory]);
 
-  // сохранение истории в localStorage
+  // сохранение истории в localStorage (только для анонимного режима)
   const persistHistory = (entries: HistoryEntry[]) => {
     if (typeof window === "undefined") return;
     try {
@@ -169,7 +235,7 @@ const App: React.FC = () => {
     }
   };
 
-  // добавить новый элемент в историю (вызов после успешного анализа)
+  // добавить новый элемент в историю (анонимный режим)
   const handleSaveHistoryEntry = (
     question: string,
     rawResponse: string,
@@ -195,6 +261,24 @@ const App: React.FC = () => {
   };
 
   const handleDeleteHistoryEntry = (id: string) => {
+    const token = getAuthToken();
+
+    if (token) {
+      // серверный режим — удаляем на бэке и рефрешим список
+      void (async () => {
+        try {
+          await deleteHistoryItem(id);
+          await loadServerHistory();
+        } catch (error) {
+          console.error("Failed to delete history entry on server", error);
+        }
+      })();
+
+      setSelectedHistoryId((current) => (current === id ? null : current));
+      return;
+    }
+
+    // локальный режим
     setHistory((prev) => {
       const next = prev.filter((item) => item.id !== id);
       persistHistory(next);
@@ -205,15 +289,29 @@ const App: React.FC = () => {
   };
 
   const handleClearHistory = () => {
-    setHistory([]);
-    setSelectedHistoryId(null);
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.removeItem(HISTORY_STORAGE_KEY);
-      } catch (error) {
-        console.error("Failed to clear history from localStorage", error);
+    const token = getAuthToken();
+
+    if (token) {
+      void (async () => {
+        try {
+          await clearServerHistory();
+          await loadServerHistory();
+        } catch (error) {
+          console.error("Failed to clear history on server", error);
+        }
+      })();
+    } else {
+      setHistory([]);
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.removeItem(HISTORY_STORAGE_KEY);
+        } catch (error) {
+          console.error("Failed to clear history from localStorage", error);
+        }
       }
     }
+
+    setSelectedHistoryId(null);
   };
 
   // выбор элемента истории → восстановить вопрос и анализ без нового запроса
@@ -259,8 +357,14 @@ const App: React.FC = () => {
     // сюда уже прилетает JSON-строка, которую потом парсит ResponsePanel
     startTyping(response.reply);
 
-    // Сохраняем в историю
-    handleSaveHistoryEntry(trimmed, response.reply, "text");
+    const token = getAuthToken();
+    if (token) {
+      // история создаётся/обновляется на бэке
+      void loadServerHistory();
+    } else {
+      // анонимный режим — сохраняем локально
+      handleSaveHistoryEntry(trimmed, response.reply, "text");
+    }
   };
 
   // 📷 Отправка картинки на бэкенд
@@ -273,8 +377,13 @@ const App: React.FC = () => {
     const response = await sendImageMessage(file);
     startTyping(response.reply);
 
-    // В историю кладём короткое описание вместо вопроса
-    handleSaveHistoryEntry(label, response.reply, "image");
+    const token = getAuthToken();
+    if (token) {
+      void loadServerHistory();
+    } else {
+      // В историю кладём короткое описание вместо вопроса
+      handleSaveHistoryEntry(label, response.reply, "image");
+    }
   };
 
   // Сабмит: и первый раз, и при редактировании
@@ -304,9 +413,7 @@ const App: React.FC = () => {
     }
 
     // то, что будем хранить как "вопрос" в истории
-    const questionLabel = hasImage
-      ? (hasText ? trimmed : "[Image]")
-      : trimmed;
+    const questionLabel = hasImage ? (hasText ? trimmed : "[Image]") : trimmed;
 
     setSubmittedQuestion(questionLabel);
     setIsEditing(false);
@@ -404,6 +511,33 @@ const App: React.FC = () => {
     startTyping(""); // очистить ответ
   };
 
+  const handleAuthSuccess = (email: string) => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(USER_EMAIL_STORAGE_KEY, email);
+      } catch {
+        // ignore
+      }
+    }
+    setCurrentUser({ email });
+    setModalMode(null);
+    void loadServerHistory();
+  };
+
+  const handleLogout = () => {
+    apiLogout();
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(USER_EMAIL_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+    }
+    setCurrentUser(null);
+    setHistory([]);
+    setSelectedHistoryId(null);
+  };
+
   return (
     <div className="app-root">
       <GradientBackground />
@@ -421,34 +555,41 @@ const App: React.FC = () => {
       {/* ВЕРХНЕЕ МЕНЮ СПРАВА */}
       <header className="top-nav">
         <div className="top-nav__group">
-          <button
-            type="button"
-            className="nav-pill nav-pill--ghost"
-            onClick={() => {
-              console.log("Language switch clicked");
-            }}
-          >
-            <span className="nav-pill__icon" aria-hidden="true">
-              🌐
-            </span>
-            <span className="nav-pill__label">EN</span>
-          </button>
+          {currentUser ? (
+            <>
+              <div className="nav-user-pill" aria-label="Current user">
+                <div className="nav-user-avatar">
+                  {currentUser.email.charAt(0).toUpperCase()}
+                </div>
+                <span className="nav-user-name">{currentUser.email}</span>
+              </div>
+              <button
+                type="button"
+                className="nav-pill nav-pill--ghost"
+                onClick={handleLogout}
+              >
+                Log out
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="nav-pill nav-pill--ghost"
+                onClick={handleOpenLogin}
+              >
+                Log in
+              </button>
 
-          <button
-            type="button"
-            className="nav-pill nav-pill--ghost"
-            onClick={handleOpenLogin}
-          >
-            Log in
-          </button>
-
-          <button
-            type="button"
-            className="nav-pill nav-pill--primary"
-            onClick={handleOpenSignup}
-          >
-            Sign up
-          </button>
+              <button
+                type="button"
+                className="nav-pill nav-pill--primary"
+                onClick={handleOpenSignup}
+              >
+                Sign up
+              </button>
+            </>
+          )}
         </div>
       </header>
 
@@ -491,6 +632,7 @@ const App: React.FC = () => {
           mode={modalMode}
           onClose={handleCloseModal}
           onChangeMode={(mode) => setModalMode(mode)}
+          onAuthSuccess={handleAuthSuccess}
         />
       )}
     </div>

@@ -25,7 +25,7 @@ type AiAnalysisPreview = {
 
 const parseAnalysisPreview = (raw: string): AiAnalysisPreview | null => {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!parsed || typeof parsed !== "object") return null;
 
     const { trust_score, manipulation_score, emotion_intensity } = parsed as any;
@@ -42,6 +42,7 @@ const parseAnalysisPreview = (raw: string): AiAnalysisPreview | null => {
     return null;
   }
 };
+
 
 const formatTime = (iso: string): string => {
   const d = new Date(iso);

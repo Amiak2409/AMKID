@@ -1,11 +1,5 @@
 # 🌐 AMKID — AI Manipulation & Knowledge Integrity Detector
 
-## 🔎 Web Overview
-
-<p align="center">
-  <img src="https://github.com/Amiak2409/AMKID/raw/develop/img/sample.jpg" width="800">
-</p>
-
 ### 🚀 Next-generation AI system for detecting fake text, AI-generated images, manipulation, and misinformation
 
 **AMKID** is an advanced content-trust system that evaluates whether text or images can be trusted.  
@@ -22,6 +16,12 @@ AMKID determines:
 
 AMKID is not just a GPT detector —  
 it is a full-spectrum trust analysis framework.
+
+## 🔎 Web Overview
+
+<p align="center">
+  <img src="https://github.com/Amiak2409/AMKID/raw/develop/img/sample.jpg" width="800">
+</p>
 
 ---
 

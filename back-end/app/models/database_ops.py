@@ -210,3 +210,10 @@ def create_trust_score(db: Session, submission_id: UUID, fake_probability: float
 def get_submission_with_score(db: Session, submission_id: UUID) -> Optional[Submission]:
     """Извлекает заявку вместе с ее результатом (если он есть)."""
     return db.query(Submission).filter(Submission.id == submission_id).first()
+
+def get_db():
+    db: Session = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

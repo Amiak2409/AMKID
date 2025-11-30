@@ -1,6 +1,6 @@
 // App.tsx
 import React, { useState, useEffect, useRef } from "react";
-import { sendChatMessage } from "./api/chat";
+import { sendChatMessage, sendImageMessage } from "./api/chat";
 import { useTypewriter } from "./hooks/useTypewriter";
 import { GradientBackground } from "./components/GradientBackground";
 import { WelcomeSection } from "./components/WelcomeSection";
@@ -44,6 +44,7 @@ interface HistoryEntry {
   question: string;
   rawResponse: string; // JSON-строка анализа или просто текст
   createdAt: string; // ISO timestamp
+  kind: "text" | "image"; // 🔹 добавили тип записи
 }
 
 const HISTORY_STORAGE_KEY = "amkid_history_v1";
@@ -57,9 +58,15 @@ const App: React.FC = () => {
 
   const { text: assistantText, start: startTyping } = useTypewriter(170);
 
+  // 📷 КАРТИНКА (одна на сообщение)
+  const [attachedImage, setAttachedImage] = useState<File | null>(null);
+
   // ИСТОРИЯ
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+
+  // в каком режиме был последний ответ (text / image)
+  const [lastResponseMode, setLastResponseMode] = useState<"text" | "image">("text");
 
   // ГОЛОС
   const [isListening, setIsListening] = useState(false);
@@ -75,7 +82,7 @@ const App: React.FC = () => {
   const handleOpenSignup = () => setModalMode("signup");
   const handleCloseModal = () => setModalMode(null);
 
-  // Что сейчас показываем в инпуте
+  // Что сейчас показываем в инпуте (для текста)
   const displayValue = hasSubmitted
     ? isEditing
       ? welcomeInput
@@ -136,8 +143,16 @@ const App: React.FC = () => {
       const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
+
       if (Array.isArray(parsed)) {
-        setHistory(parsed);
+        const normalized: HistoryEntry[] = parsed.map((item: any) => ({
+          id: item.id,
+          question: item.question,
+          rawResponse: item.rawResponse,
+          createdAt: item.createdAt,
+          kind: item.kind === "image" ? "image" : "text", // старые записи → text
+        }));
+        setHistory(normalized);
       }
     } catch (error) {
       console.error("Failed to read history from localStorage", error);
@@ -155,7 +170,11 @@ const App: React.FC = () => {
   };
 
   // добавить новый элемент в историю (вызов после успешного анализа)
-  const handleSaveHistoryEntry = (question: string, rawResponse: string) => {
+  const handleSaveHistoryEntry = (
+    question: string,
+    rawResponse: string,
+    kind: "text" | "image" = "text",
+  ) => {
     setHistory((prev) => {
       const newEntry: HistoryEntry = {
         id:
@@ -165,6 +184,7 @@ const App: React.FC = () => {
         question,
         rawResponse,
         createdAt: new Date().toISOString(),
+        kind,
       };
 
       // ограничим историю, например, 50 последними
@@ -218,6 +238,7 @@ const App: React.FC = () => {
     setShowResponseBlock(true);
     setWelcomeInput(""); // редактирование только через Edit
     setSelectedHistoryId(entry.id);
+    setLastResponseMode(entry.kind); // 🔹 восстанавливаем режим text/image
 
     // показываем сохранённый ответ (JSON-строка),
     // ResponsePanel сам его распарсит и отрисует метрики
@@ -229,6 +250,8 @@ const App: React.FC = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    setLastResponseMode("text");
+
     // Сначала очищаем текст, чтобы панель поняла, что мы в "loading"
     startTyping("");
 
@@ -236,8 +259,22 @@ const App: React.FC = () => {
     // сюда уже прилетает JSON-строка, которую потом парсит ResponsePanel
     startTyping(response.reply);
 
-    // Сохраняем в историю (готово для потом подмены на запись в БД)
-    handleSaveHistoryEntry(trimmed, response.reply);
+    // Сохраняем в историю
+    handleSaveHistoryEntry(trimmed, response.reply, "text");
+  };
+
+  // 📷 Отправка картинки на бэкенд
+  const sendImageTurn = async (file: File, label: string) => {
+    setLastResponseMode("image");
+
+    // Сначала очищаем текст, чтобы панель показала лоадер
+    startTyping("");
+
+    const response = await sendImageMessage(file);
+    startTyping(response.reply);
+
+    // В историю кладём короткое описание вместо вопроса
+    handleSaveHistoryEntry(label, response.reply, "image");
   };
 
   // Сабмит: и первый раз, и при редактировании
@@ -245,7 +282,11 @@ const App: React.FC = () => {
     event.preventDefault();
 
     const trimmed = welcomeInput.trim();
-    if (!trimmed) return;
+    const hasText = trimmed.length > 0;
+    const hasImage = Boolean(attachedImage);
+
+    // если нет ни текста, ни картинки — ничего не делаем
+    if (!hasText && !hasImage) return;
 
     // если микрофон ещё слушает — остановим
     if (isListening && recognitionRef.current) {
@@ -262,10 +303,15 @@ const App: React.FC = () => {
       setHasSubmitted(true);
     }
 
-    setSubmittedQuestion(trimmed);
+    // то, что будем хранить как "вопрос" в истории
+    const questionLabel = hasImage
+      ? (hasText ? trimmed : "[Image]")
+      : trimmed;
+
+    setSubmittedQuestion(questionLabel);
     setIsEditing(false);
 
-    // при вводе нового текста мы НЕ считаем, что выбран какой-то элемент истории
+    // при вводе нового текста/картинки мы НЕ считаем, что выбран какой-то элемент истории
     setSelectedHistoryId(null);
 
     // плавно перезапускаем панель
@@ -273,11 +319,20 @@ const App: React.FC = () => {
 
     setTimeout(() => {
       setShowResponseBlock(true);
-      void sendConversationTurn(trimmed);
+
+      if (hasImage && attachedImage) {
+        // отправляем только картинку
+        void sendImageTurn(attachedImage, questionLabel);
+      } else {
+        // классический текстовый запрос
+        void sendConversationTurn(trimmed);
+      }
     }, 550);
 
     // значение в инпуте можно очистить — сверху всё равно используется submittedQuestion
     setWelcomeInput("");
+    // после отправки картинку можно очистить, если не хочешь повторного reuse
+    setAttachedImage(null);
   };
 
   // Старт режима редактирования (иконка пера)
@@ -344,6 +399,8 @@ const App: React.FC = () => {
     setIsListening(false);
     setCurrentLang(null);
     setSelectedHistoryId(null);
+    setAttachedImage(null); // 🔹 сбрасываем картинку
+    setLastResponseMode("text"); // дефолт
     startTyping(""); // очистить ответ
   };
 
@@ -416,12 +473,16 @@ const App: React.FC = () => {
         isListening={isListening}
         isSpeechAvailable={isSpeechAvailable}
         currentLangCode={currentLang ?? undefined}
+        // 📷 картинка
+        attachedImage={attachedImage}
+        onImageChange={setAttachedImage}
       />
 
       <ResponsePanel
         show={showResponseBlock}
         assistantText={assistantText}
         onNewMessage={handleNewMessage}
+        mode={lastResponseMode} // 🔹 text / image
       />
 
       {/* ГЛАВНОЕ СТЕКЛЯННОЕ МОДАЛЬНОЕ ОКНО (Help / Login / Sign up) */}

@@ -1939,3 +1939,138 @@ chat-result {
     display: none;
   }
 }
+
+.image-input-hidden {
+  display: none;
+}
+
+/* Кнопка прикрепления — стеклянный кружок слева от микрофона */
+.image-button {
+  position: absolute;
+  right: 50px; /* чуть левее микрофона */
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.24), transparent 55%),
+    rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(14px) saturate(170%);
+  -webkit-backdrop-filter: blur(14px) saturate(170%);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(248, 250, 252, 0.95);
+  cursor: pointer;
+
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 0.4px rgba(255, 255, 255, 0.24);
+
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.05s ease,
+    opacity 0.2s ease;
+}
+
+.image-button:hover {
+  border-color: rgba(196, 181, 253, 0.9);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 0.6px rgba(255, 255, 255, 0.3);
+}
+
+.image-button--active {
+  border-color: rgba(244, 114, 182, 0.9);
+  box-shadow:
+    0 0 16px rgba(244, 114, 182, 0.9),
+    0 14px 30px rgba(0, 0, 0, 0.95);
+}
+
+.image-button__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Плашка с превью прикреплённой картинки */
+.image-pill {
+  position: absolute;
+  left: 110px;
+  bottom: 9px;
+  opacity: 0;
+  pointer-events: none;
+
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  padding: 3px 10px 3px 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  background: rgba(15, 23, 42, 0.96);
+  color: rgba(226, 232, 240, 0.96);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(129, 140, 248, 0.7);
+
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+/* Показываем сразу, как только есть картинка */
+.hero-input-container .image-pill {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+
+.image-pill__thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.6);
+}
+
+.image-pill__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-pill__name {
+  max-width: 130px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.image-pill__remove {
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.image-pill:hover {
+  border-color: rgba(191, 219, 254, 0.9);
+  background: rgba(15, 23, 42, 1);
+}

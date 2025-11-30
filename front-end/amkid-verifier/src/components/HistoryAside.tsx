@@ -5,7 +5,8 @@ type HistoryEntry = {
   id: string;
   question: string;
   rawResponse: string;
-  createdAt: string;
+  createdAt: string,
+  kind: "text" | "image";
 };
 
 interface HistoryAsideProps {

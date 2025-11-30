@@ -104,10 +104,15 @@ resulting in behavior closer to real-world risk models (banking, insurance).
 
 - Endpoints:  
   - `POST /analyze-text` — analyzes text  
-  - `POST /analyze-image` — analyzes an image  
+  - `POST /analyze-image` — analyzes an image
+  - `POST /auth/register` - creates user, hashes password, returns JWT token
+  - `POST /auth/login` -  verifies credentials, returns JWT token
 - Service layer:  
   - `analyze_text(content: str) -> TextAnalyzeResponse`  
-  - `analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse`  
+  - `analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse`
+  - `Submission Service Layer (submission_service.py)`
+  - `Authentication Service/Utility Layers`
+  - `TrustScoreAssembler Class (services/metrics_assembler.py)`  
 - AI integrations:  
   - OpenAI Chat Completions (GPT-4.1-mini)  
   - Hugging Face Vision (for images)  
@@ -130,7 +135,10 @@ resulting in behavior closer to real-world risk models (banking, insurance).
 - Uvicorn  
 - OpenAI Python SDK  
 - Requests / HTTPX  
-- Pydantic  
+- Pydantic
+- PostgreSQL
+- Boto3
+- SQLAlchemy  
 
 **Frontend:**
 

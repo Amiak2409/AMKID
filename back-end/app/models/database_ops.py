@@ -35,21 +35,23 @@ Base = declarative_base()
 
 class User(Base):
     """Таблица users (Пользователи)"""
-    __tablename__ = "users"
+    tablename = "users"
 
     id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: str = Column(String(100), unique=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
     created_at: datetime = Column(DateTime(timezone=True), default=datetime.now)
 
     # Отношение: Один пользователь может иметь много заявок (обратная связь)
     submissions = relationship("Submission", back_populates="user")
     
-    def __repr__(self):
+    def repr(self):
         return f"<User(id={self.id}, username={self.username})>"
     
 class Submission(Base):
     """Таблица submissions (Входящие данные)"""
-    __tablename__ = "submissions"
+    tablename = "submissions"
 
     # id UUID PRIMARY KEY DEFAULT gen_random_uuid()
     id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -64,7 +66,7 @@ class Submission(Base):
     content_text: Optional[str] = Column(Text, nullable=True) 
     
     # media_url TEXT
-    media_url: str = Column(Text, nullable=False)
+    media_url: Optional[str] = Column(Text, nullable=False)
     
     # status VARCHAR(20) DEFAULT 'pending'
     status: str = Column(String(20), default='pending', nullable=False)
@@ -77,13 +79,13 @@ class Submission(Base):
     user = relationship("User", back_populates="submissions")
     trust_score = relationship("TrustScore", back_populates="submission", uselist=False)
 
-    def __repr__(self):
+    def repr(self):
         return f"<Submission(id={self.id}, type={self.media_type}, status={self.status})>"
 
     
 class TrustScore(Base):
     """Таблица trust_scores (Результаты ИИ)"""
-    __tablename__ = "trust_scores"
+    tablename = "trust_scores"
 
     # id UUID PRIMARY KEY DEFAULT gen_random_uuid()
     id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -92,7 +94,7 @@ class TrustScore(Base):
     submission_id: UUID = Column(UUID(as_uuid=True), ForeignKey('submissions.id'), nullable=False)
     
     # fake_probability FLOAT NOT NULL
-    fake_probability: float = Column(Float, nullable=False)
+    fake_probability: float = Column(Float, nullable=True)
     
     # verdict VARCHAR(50)
     verdict: str = Column(String(50), nullable=True)
@@ -109,7 +111,7 @@ class TrustScore(Base):
     # связь с заявкой
     submission = relationship("Submission", back_populates="trust_score")
 
-    def __repr__(self):
+    def repr(self):
         return f"<TrustScore(id={self.id}, fake_prob={self.fake_probability})>"
 
 
@@ -142,7 +144,7 @@ def create_submission(db: Session, media_type: str, media_url: str, user_id: Opt
         media_url=media_url
     )
     db.add(new_submission)
-    db.commit()
+    db.flush()
     db.refresh(new_submission)
     return new_submission
 
@@ -194,7 +196,7 @@ def update_submission_status(db: Session, submission_id: UUID, new_status: str, 
         return submission
     return None
 
-def create_trust_score(db: Session, submission_id: UUID, fake_probability: float, verdict: str, ai_metadata: Dict[str, Any] = None, commit: bool = True) -> TrustScore:
+def create_trust_score(db: Session, submission_id: UUID, fake_probability: float, verdict: str, ai_metadata: Dict[str, Any] = None) -> TrustScore:
     """Создает запись результата анализа в таблице trust_scores."""
     new_score = TrustScore(
         submission_id=submission_id,
@@ -203,10 +205,17 @@ def create_trust_score(db: Session, submission_id: UUID, fake_probability: float
         ai_metadata=ai_metadata if ai_metadata is not None else {}
     )
     db.add(new_score)
-    db.commit()
+    db.flush() 
     db.refresh(new_score)
     return new_score
 
 def get_submission_with_score(db: Session, submission_id: UUID) -> Optional[Submission]:
     """Извлекает заявку вместе с ее результатом (если он есть)."""
     return db.query(Submission).filter(Submission.id == submission_id).first()
+
+def get_db():
+    db: Session = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

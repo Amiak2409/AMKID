@@ -19,7 +19,7 @@
 
   --color-interactive: 175, 145, 255;
 
-  --circle-size: 60%;
+  --circle-size: 70%;
   --blending: screen;
 }
 
@@ -296,34 +296,41 @@ body {
 .hero-input-container {
   position: relative;
   flex: 1 1 220px;
-  max-width: 360px;
+  max-width: 460px;
 }
 
 /* сам инпут теперь занимает всю ширину контейнера */
 .hero-input {
   width: 100%;
   border-radius: 999px;
-
   border: 1px solid rgba(255, 255, 255, 0.22);
-  /* добавили место справа под кнопку микрофона */
   padding: 12px 48px 12px 18px;
   outline: none;
   font-size: 14px;
   color: var(--text);
+  max-height: 100px;
 
-  /* стекло */
+  /* для textarea и input */
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.4;
+
   background: rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(20px) saturate(170%);
   -webkit-backdrop-filter: blur(20px) saturate(170%);
 
-  /* более мягкая глубокая тень + лёгкий фиолетовый glow */
   box-shadow:
     inset 0 0 0 0.6px rgba(255, 255, 255, 0.4),
     0 18px 45px rgba(0, 0, 0, 0.75),
     0 0 26px rgba(180, 130, 255, 0.22);
 
-  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  transition:
+    height 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
+
+
 
 /* когда поле в режиме редактирования уже отправленного текста */
 .hero-input--editing {

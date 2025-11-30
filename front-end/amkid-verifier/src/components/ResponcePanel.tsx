@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { RadialBarChart, RadialBar, PolarAngleAxis } from "recharts";
 
 interface ResponsePanelProps {
@@ -57,7 +57,7 @@ const rgbTripletToColor = (c: RGB): string => {
 
 // ПАЛИТРА ДЛЯ ОЧЕНЬ ХОРОШИХ / БЕЗОПАСНЫХ СООБЩЕНИЙ
 const POSITIVE_PALETTE = {
-  bg1: [8, 22, 40] as RGB,   // чуть более мягкий сине-фиолетовый фон
+  bg1: [8, 22, 40] as RGB, // мягкий сине-фиолетовый фон
   bg2: [4, 10, 30] as RGB,
   c1: [110, 240, 220] as RGB, // мятно-бирюзовые бабблы
   c2: [170, 210, 255] as RGB, // светло-голубые
@@ -67,7 +67,7 @@ const POSITIVE_PALETTE = {
   interactive: [185, 225, 255] as RGB,
 };
 
-// НЕЙТРАЛЬНАЯ ПАЛИТРА — ТВОЙ ТЕКУЩИЙ ФОН
+// НЕЙТРАЛЬНАЯ ПАЛИТРА — базовый фон
 const NEUTRAL_PALETTE = {
   bg1: [6, 0, 28] as RGB, // ~ #06001c
   bg2: [2, 0, 16] as RGB, // ~ #020010
@@ -81,7 +81,7 @@ const NEUTRAL_PALETTE = {
 
 // ОЧЕНЬ ПЛОХИЕ / ТОКСИЧНЫЕ СООБЩЕНИЯ
 const NEGATIVE_PALETTE = {
-  bg1: [24, 2, 16] as RGB,   // темно-бордовый фон
+  bg1: [24, 2, 16] as RGB, // темно-бордовый фон
   bg2: [8, 0, 8] as RGB,
   c1: [255, 120, 120] as RGB, // красно-розовые бабблы
   c2: [255, 80, 160] as RGB,
@@ -113,10 +113,16 @@ const applyDangerToCss = (dangerLevel: number) => {
   if (typeof document === "undefined") return;
 
   const danger = clamp01(dangerLevel);
-  // danger = 0   → tone = -1 (очень хороший текст → позитивные цвета)
-  // danger = 0.5 → tone = 0  (нейтральный)
-  // danger = 1   → tone = 1  (максимально плохой → красный тёмный фон)
-  const tone = danger * 2 - 1;
+
+  // 🟥 Усиливаем негативную сторону:
+  //  - хорошие/безопасные тексты (danger < 0.5) изменяются мягко
+  //  - плохие (danger > 0.5) гораздо быстрее уходят в красно-тёмную палитру
+  const shaped =
+    danger < 0.5
+      ? danger * 0.7
+      : 0.5 + (danger - 0.5) * 1.8;
+
+  const tone = Math.max(-1, Math.min(1, shaped * 2 - 1));
 
   const root = document.documentElement;
 
@@ -155,16 +161,41 @@ const computeDangerLevelFromAnalysis = (a: AiAnalysisResponse): number => {
   const phrasesComponent =
     a.dangerous_phrases && a.dangerous_phrases.length > 0 ? 1 : 0;
 
-  // простая взвешенная смесь: чем хуже метрики, тем выше danger
-  const raw =
+  // базовая смесь
+  let danger =
     trustComponent * 0.4 +
     manipulationComponent * 0.3 +
     emotionComponent * 0.2 +
     phrasesComponent * 0.1;
 
-  return clamp01(raw);
-};
+  danger = clamp01(danger);
 
+  // 🔥 "Явно плохой" текст — хотим почти гарантированно красно-бордовый фон
+  const hasDangerousPhrases = (a.dangerous_phrases?.length ?? 0) > 0;
+  const lowTrust = a.trust_score <= 65;
+  const highManipulation = a.manipulation_score >= 0.4;
+  const veryHighEmotion = a.emotion_intensity >= 0.75;
+
+  const clearlyBad = hasDangerousPhrases || lowTrust || highManipulation || veryHighEmotion;
+
+  if (clearlyBad) {
+    // Минимальный уровень danger для "плохих" — сильно смещаем в красную зону
+    danger = Math.max(danger, 0.8);
+  }
+
+  // 💚 Очень безопасный текст — чуть поджимаем danger вниз
+  const verySafe =
+    a.trust_score >= 90 &&
+    a.manipulation_score <= 0.1 &&
+    !hasDangerousPhrases &&
+    a.emotion_intensity <= 0.3;
+
+  if (verySafe) {
+    danger = Math.min(danger, 0.18);
+  }
+
+  return clamp01(danger);
+};
 
 /* ============================
    METRIC DIAL
@@ -220,13 +251,27 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
   onNewMessage,
 }) => {
   const trimmed = assistantText.trim();
-  const isJsonCandidate =
-    trimmed.startsWith("{") && trimmed.includes("trust_score");
+
+  // Берём только JSON-часть (между первой '{' и последней '}'), если она есть
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  const jsonSlice =
+    firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace
+      ? trimmed.slice(firstBrace, lastBrace + 1)
+      : null;
+
+  const isJsonCandidate = !!jsonSlice && jsonSlice.includes("trust_score");
+
+  // Выглядит ли ответ как стримящийся JSON (для лоадера)
+  const looksLikeJsonStream =
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("```") ||
+    (jsonSlice !== null && jsonSlice.trim().startsWith("{"));
 
   const analysis: AiAnalysisResponse | null = useMemo(() => {
-    if (!isJsonCandidate) return null;
+    if (!jsonSlice || !isJsonCandidate) return null;
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed = JSON.parse(jsonSlice);
       if (
         typeof parsed === "object" &&
         parsed !== null &&
@@ -238,7 +283,7 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
     } catch {
       return null;
     }
-  }, [trimmed, isJsonCandidate]);
+  }, [jsonSlice, isJsonCandidate]);
 
   const hasAnalysis = Boolean(analysis);
 
@@ -252,51 +297,85 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
 
   // loading: панель уже показана, но анализа ещё нет
   const isInitiallyLoading = show && !assistantText;
-  const isLoading = isInitiallyLoading || (isJsonCandidate && !analysis);
 
-  // fallback: это не JSON анализа, а просто текст
+  // ЛОГИКА ЛОАДЕРА:
+  //  - пока текст пустой → точка
+  //  - пока текст выглядит как JSON (стримится) и ещё не распарсился → тоже точка
+  const isLoading =
+    isInitiallyLoading || ((looksLikeJsonStream || isJsonCandidate) && !analysis);
+
+  // fallback: это не JSON анализа, а обычный текст
   const showTextFallback =
-    !isLoading && !hasAnalysis && !!assistantText && !isJsonCandidate;
+    !!assistantText &&
+    !analysis &&
+    !isLoading &&
+    !looksLikeJsonStream &&
+    !isJsonCandidate;
 
   // 👉 тут мы обновляем фон в зависимости от анализа
-  // текущее значение "опасности" (нужно, чтобы анимировать от старого к новому)
-// текущее значение "опасности" (нужно, чтобы анимировать от старого к новому)
-const dangerRef = useRef(0.5);
+  const dangerRef = useRef(0.5);
+    const animationFrameRef = useRef<number | null>(null);
 
-// плавная анимация фона при смене анализа
-useEffect(() => {
-  // если анализа нет (новый запрос / старт) → уходим в нейтральную палитру (0.5)
-  const targetDanger = analysis ? computeDangerLevelFromAnalysis(analysis) : 0.5;
-  const startDanger = dangerRef.current;
-  const duration = 4000; // 2 секунды
-  const startTime = performance.now();
-  let frameId: number;
+  const animateDanger = useCallback(
+    (target: number, duration = 4000) => {
+      // гасим предыдущую анимацию, если она ещё крутится
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
 
-  const tick = (now: number) => {
-    const elapsed = now - startTime;
-    const progress = Math.min(1, elapsed / duration);
+      const startDanger = dangerRef.current;
+      const startTime = performance.now();
 
-    // лёгкий easing
-    const eased = progress * (2 - progress);
+      const tick = (now: number) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const eased = progress * (2 - progress); // лёгкий ease-out
 
-    const current = startDanger + (targetDanger - startDanger) * eased;
-    dangerRef.current = current;
-    applyDangerToCss(current);
+        const current = startDanger + (target - startDanger) * eased;
+        dangerRef.current = current;
+        applyDangerToCss(current);
 
-    if (progress < 1) {
-      frameId = requestAnimationFrame(tick);
+        if (progress < 1) {
+          animationFrameRef.current = requestAnimationFrame(tick);
+        } else {
+          animationFrameRef.current = null;
+        }
+      };
+
+      animationFrameRef.current = requestAnimationFrame(tick);
+    },
+    [],
+  );
+
+
+  // начальное состояние — нейтральная палитра
+  useEffect(() => {
+    dangerRef.current = 0.5;
+    applyDangerToCss(0.5);
+  }, []);
+
+  // когда начинается новый запрос / идёт лоадер — фон возвращаем к изначальному
+  useEffect(() => {
+    if (isLoading) {
+      animateDanger(0.5, 4000);
     }
-  };
+  }, [isLoading]);
 
-  frameId = requestAnimationFrame(tick);
+  // плавная анимация фона при появлении нового анализа
+   // плавная анимация фона при появлении нового анализа
+  useEffect(() => {
+    if (!analysis) return;
+    const targetDanger = computeDangerLevelFromAnalysis(analysis);
+    animateDanger(targetDanger, 4000);
+  }, [analysis, animateDanger]);
 
-  return () => {
-    cancelAnimationFrame(frameId);
-  };
-}, [analysis]);
 
-
-
+  // когда панель скрывается, возвращаем фон к нейтральному состоянию
+  useEffect(() => {
+    if (!show) {
+      animateDanger(0.5, 4000);
+    }
+  }, [show]);
 
   // когда появился analysis — по очереди включаем секции + печатаем summary по словам
   useEffect(() => {
@@ -372,7 +451,7 @@ useEffect(() => {
         <div className="chat-header">
           <div className="chat-header-title">Assistant analysis</div>
           <div className="chat-header-subtitle">
-            AI-powered safety & trust overview of your text
+            AI-powered safety &amp; trust overview of your text
           </div>
         </div>
 

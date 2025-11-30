@@ -1,11 +1,13 @@
 // WelcomeSection.tsx
-import React from "react";
+import React, { useRef, useLayoutEffect } from "react";
 
 interface WelcomeSectionProps {
   value: string;
   hasSubmitted: boolean;
   isEditing: boolean;
-  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => void;
   onSubmit: (event: React.FormEvent) => void;
   onStartEdit: () => void;
 
@@ -28,7 +30,42 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
   isSpeechAvailable,
   currentLangCode,
 }) => {
-  const showVoiceButton = Boolean(onToggleVoice);
+  // 🎙 Микрофон показываем только до первого сабмита
+  const showVoiceButton = Boolean(onToggleVoice) && !hasSubmitted;
+
+  // textarea используется только ПОСЛЕ сабмита (когда блок наверху)
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  // 🔁 Авто-высота textarea после отправки: до ~3 строк, дальше scroll
+  useLayoutEffect(() => {
+    if (!hasSubmitted) return;
+    const el = textAreaRef.current;
+    if (!el) return;
+
+    // Сбрасываем и считаем реальную высоту
+    el.style.height = "auto";
+
+    const maxHeight = 90; // ~3 строки при твоём font-size/line-height
+    const scrollHeight = el.scrollHeight;
+    const newHeight = Math.min(scrollHeight, maxHeight);
+
+    el.style.height = `${newHeight}px`;
+    el.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [hasSubmitted, value]);
+
+  // ⌨️ В режиме редактирования наверху:
+  // Enter (без Shift) = отправка, Shift+Enter при желании можно включить позже
+  const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (
+    event,
+  ) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (formRef.current) {
+        formRef.current.requestSubmit();
+      }
+    }
+  };
 
   return (
     <div className={`question-shell ${hasSubmitted ? "question-shell--pinned" : ""}`}>
@@ -37,18 +74,45 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
           <h1 className="hero-title hero-title--brand">welcome from AMKID</h1>
         )}
 
-        <form className="hero-form" onSubmit={onSubmit}>
+        <form
+          className="hero-form"
+          onSubmit={onSubmit}
+          ref={formRef}
+        >
           <div className="hero-input-container">
-            <input
-              type="text"
-              className={`hero-input ${
-                hasSubmitted && isEditing ? "hero-input--editing" : ""
-              }`}
-              placeholder={hasSubmitted ? "" : "Type anything to begin…"}
-              value={value}
-              readOnly={hasSubmitted && !isEditing}
-              onChange={!hasSubmitted || isEditing ? onChange : undefined}
-            />
+            {/* 
+              ДО отправки: обычный однострочный <input>,
+              текст идёт в одну строку и прокручивается горизонтально
+            */}
+            {!hasSubmitted && (
+              <input
+                type="text"
+                className="hero-input"
+                placeholder="Type anything to begin…"
+                value={value}
+                readOnly={false}
+                onChange={onChange}
+              />
+            )}
+
+            {/* 
+              ПОСЛЕ отправки (когда блок наверху): textarea,
+              фиксированная ширина, высота зависит от контента (до 3 строк)
+            */}
+            {hasSubmitted && (
+              <textarea
+                ref={textAreaRef}
+                className={`hero-input ${
+                  hasSubmitted && isEditing ? "hero-input--editing" : ""
+                }`}
+                placeholder=""
+                value={value}
+                readOnly={!isEditing}
+                onChange={isEditing ? onChange : undefined}
+                onKeyDown={isEditing ? handleKeyDown : undefined}
+                rows={1} // стартуем с одной строки, дальше растим через useLayoutEffect
+              />
+            )}
 
             {/* КНОПКА РЕДАКТА ПОСЛЕ ОТПРАВКИ */}
             {hasSubmitted && !isEditing && (
@@ -65,7 +129,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
               </button>
             )}
 
-            {/* МИКРОФОН ВНУТРИ ИНПУТА */}
+            {/* МИКРОФОН ВНУТРИ ИНПУТА — только в приветственном состоянии */}
             {showVoiceButton && (
               <button
                 type="button"
@@ -94,6 +158,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
             )}
           </div>
 
+          {/* Стартовая стрелка — только до первого сабмита */}
           {!hasSubmitted && (
             <button type="submit" className="hero-button" aria-label="Start">
               <span aria-hidden="true">➜</span>

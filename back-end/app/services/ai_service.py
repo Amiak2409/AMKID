@@ -22,6 +22,10 @@ logging.basicConfig(level=logging.INFO)
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 zerogpt_api_key = os.getenv("ZEROGPT_API_KEY")
+hf_api_key = os.getenv("HF_API_KEY")
+HF_IMAGE_MODEL_URL = "https://api-inference.huggingface.co/models/falconsai/Detect-Fake-Image-Using-ResNet50"
+
+
 
 if not api_key:
     raise RuntimeError("OPENAI_API_KEY не найден. Проверь файл .env в корне проекта.")
@@ -226,7 +230,7 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
         "     \"true_likeliness\": float 0-1,\n"
         "     \"comment\": строка}\n"
         "  ],\n"
-        '  \"summary\": строка краткого объяснения\n'
+        '  \"summary\": строка краткого объяснения, обьяснение преимущественно давай на английском, но если текст на русском или словацком то на этих языках\n'
         "}\n"
         "Не добавляй никакого текста вокруг JSON."
     )
@@ -330,17 +334,251 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
 #                          Анализ изображения
 # =====================================================================
 
+import base64
+
+def detect_ai_image_hf(image_bytes: bytes) -> Optional[float]:
+    """
+    Вызывает HuggingFace модель falconsai/Detect-Fake-Image-Using-ResNet50
+    и возвращает вероятность того, что картинка ИИ (0.0–1.0),
+    либо None, если не удалось.
+    """
+
+    if not hf_api_key:
+        logger.info("HF_API_KEY не задан. Пропускаю детектор изображения HuggingFace.")
+        return None
+
+    headers = {"Authorization": f"Bearer {hf_api_key}"}
+
+    try:
+        resp = requests.post(
+            HF_IMAGE_MODEL_URL,
+            headers=headers,
+            data=image_bytes,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        logger.warning("Ошибка запроса к HuggingFace image-detector: %s", e)
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning("HuggingFace вернул не-JSON для image-detector: %s", e)
+        return None
+
+    # Ожидаемый формат: [{"label": "real"/"fake", "score": 0.xx}, ...]
+    if not isinstance(data, list) or not data:
+        logger.warning("Неожиданный ответ от HF image-detector: %r", data)
+        return None
+
+    fake_score = None
+    real_score = None
+    for item in data:
+        label = str(item.get("label", "")).lower()
+        score = float(item.get("score", 0.0))
+        if "fake" in label or "ai" in label:
+            fake_score = max(fake_score or 0.0, score)
+        if "real" in label:
+            real_score = max(real_score or 0.0, score)
+
+    ai_likelihood = None
+    if fake_score is not None:
+        ai_likelihood = fake_score
+    elif real_score is not None:
+        ai_likelihood = 1.0 - real_score
+
+    if ai_likelihood is None:
+        logger.warning("Не удалось выделить fake/real score из HF ответа: %r", data)
+        return None
+
+    ai_likelihood = max(0.0, min(1.0, ai_likelihood))
+    logger.info("HF image-detector ai_likeliness=%.3f", ai_likelihood)
+    return ai_likelihood
+
+
+def analyze_image_with_openai(image_bytes: bytes) -> Dict[str, Any]:
+    """
+    Анализ изображения через OpenAI Vision (gpt-4.1-mini / gpt-4o-mini).
+    Возвращает dict с полями:
+    {
+      "ai_likeliness": float 0-1,
+      "manipulation_risk": float 0-1,
+      "realism": float 0-1,
+      "anomalies": [строки],
+      "summary": строка
+    }
+    либо дефолт, если что-то пошло не так.
+    """
+
+    # Базовый дефолт, если что-то сломалось
+    default = {
+        "ai_likeliness": 0.5,
+        "manipulation_risk": 0.3,
+        "realism": 0.8,
+        "anomalies": [],
+        "summary": "Не удалось провести полноценный анализ изображения.",
+    }
+
+    # Кодируем картинку в base64 для data URL
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    image_url = f"data:image/jpeg;base64,{b64}"
+
+    system_prompt = (
+        "Ты модуль анализа доверия к изображению. "
+        "Твоя задача — оценить несколько метрик и вернуть СТРОГО JSON:\n"
+        "{\n"
+        '  \"ai_likeliness\": float от 0 до 1,  // вероятность, что картинка сгенерирована ИИ\n'
+        '  \"manipulation_risk\": float от 0 до 1,  // риск, что изображение было отредактировано / подделано\n'
+        '  \"realism\": float от 0 до 1,  // насколько картинка выглядит визуально реалистичной\n'
+        '  \"anomalies\": [строки],  // перечень заметных аномалий (например, странные руки, тени, текст)\n'
+        '  \"summary\": строка краткого объяснения, обьяснение преимущественно давай на английском, но если текст на русском или словацком то на этих языках\n'
+        "}\n"
+        "Не добавляй никакого текста вокруг JSON."
+    )
+
+    user_content = [
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url},
+        },
+        {
+            "type": "text",
+            "text": (
+                "Проанализируй это изображение: реалистичность, возможные манипуляции, "
+                "вероятность ИИ-генерации и перечисли визуальные аномалии, если они есть."
+            ),
+        },
+    ]
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4.1-mini",  # или gpt-4o-mini, если доступен
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+    except Exception as e:
+        logger.exception("Ошибка при обращении к OpenAI Vision: %s", e)
+        return default
+
+    raw = completion.choices[0].message.content
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.exception("Не удалось распарсить JSON от OpenAI Vision. raw=%r", raw)
+        return default
+
+    try:
+        return {
+            "ai_likeliness": float(data.get("ai_likeliness", default["ai_likeliness"])),
+            "manipulation_risk": float(data.get("manipulation_risk", default["manipulation_risk"])),
+            "realism": float(data.get("realism", default["realism"])),
+            "anomalies": data.get("anomalies", []) or [],
+            "summary": str(data.get("summary", default["summary"])),
+        }
+    except Exception:
+        logger.exception("Ошибка при приведении типов метрик изображения: %r", data)
+        return default
+
+
+def compute_image_trust_score(
+    *,
+    ai_likeliness: float,
+    manipulation_risk: float,
+    realism: float,
+    anomalies: List[str],
+) -> int:
+    """
+    Аналог продвинутого trust-score, но для изображений.
+    Оси:
+      - authenticity_score : похожесть на человеческое фото (1 - ai_likeliness)
+      - integrity_score    : отсутствие манипуляций     (1 - manipulation_risk)
+      - realism_score      : визуальная реалистичность  (realism)
+      - anomaly_score      : отсутствие заметных аномалий (чем больше аномалий, тем хуже)
+
+    Используем взвешенное геометрическое среднее.
+    """
+
+    authenticity_score = (1.0 - ai_likeliness) * 100.0
+    integrity_score = (1.0 - manipulation_risk) * 100.0
+    realism_score = realism * 100.0
+
+    n_anom = len(anomalies)
+    anomaly_score = 100.0 * math.exp(-0.5 * n_anom)  # при 0 аномалий = 100, при 1 ~60, при 2 ~37
+
+    w_auth = 3.0
+    w_integ = 3.0
+    w_real = 2.0
+    w_anom = 2.0
+
+    s_a = max(authenticity_score / 100.0, 1e-6)
+    s_i = max(integrity_score / 100.0, 1e-6)
+    s_r = max(realism_score / 100.0, 1e-6)
+    s_n = max(anomaly_score / 100.0, 1e-6)
+
+    total_weight = w_auth + w_integ + w_real + w_anom
+
+    log_trust = (
+        w_auth * math.log(s_a)
+        + w_integ * math.log(s_i)
+        + w_real * math.log(s_r)
+        + w_anom * math.log(s_n)
+    ) / total_weight
+
+    trust = math.exp(log_trust) * 100.0
+    trust = max(0, min(100, int(round(trust))))
+    return trust
+
 
 def analyze_image(image_bytes: bytes) -> ImageAnalyzeResponse:
     """
-    Анализ изображения через OpenAI (Vision).
-    Пока — стабильная заглушка, чтобы не ломать фронт.
+    Анализ изображения:
+      1. HuggingFace детектор falconsai/Detect-Fake-Image-Using-ResNet50
+      2. OpenAI Vision (gpt-4.1-mini)
+      3. Комбинированный ai_likeliness и продвинутый trust_score.
     """
+
+    # 1) HF детектор
+    hf_ai = detect_ai_image_hf(image_bytes)
+
+    # 2) OpenAI Vision
+    vision_metrics = analyze_image_with_openai(image_bytes)
+    vision_ai = vision_metrics["ai_likeliness"]
+    manipulation_risk = vision_metrics["manipulation_risk"]
+    realism = vision_metrics["realism"]
+    anomalies = [str(a) for a in (vision_metrics["anomalies"] or [])]
+    summary = vision_metrics["summary"]
+
+    # 3) Комбинируем оценки AI-картинки
+    if hf_ai is not None and vision_ai is not None:
+        ai_likeliness = 0.6 * hf_ai + 0.4 * vision_ai
+        logger.info(
+            "Комбинированный image ai_likeliness: HF=%.3f, Vision=%.3f -> %.3f",
+            hf_ai,
+            vision_ai,
+            ai_likeliness,
+        )
+    elif hf_ai is not None:
+        ai_likeliness = hf_ai
+        logger.info("Используем только HF ai_likeliness для изображения: %.3f", ai_likeliness)
+    else:
+        ai_likeliness = vision_ai
+        logger.info("Используем только OpenAI Vision ai_likeliness для изображения: %.3f", ai_likeliness)
+
+    # 4) Итоговый trust-score
+    trust_score = compute_image_trust_score(
+        ai_likeliness=ai_likeliness,
+        manipulation_risk=manipulation_risk,
+        realism=realism,
+        anomalies=anomalies,
+    )
+
     return ImageAnalyzeResponse(
-        trust_score=70,
-        ai_likeliness=0.4,
-        manipulation_risk=0.3,
-        realism=0.8,
-        anomalies=[],
-        summary="Изображение выглядит в целом реалистичным. Низкая вероятность ИИ-генерации.",
+        trust_score=trust_score,
+        ai_likeliness=ai_likeliness,
+        manipulation_risk=manipulation_risk,
+        realism=realism,
+        anomalies=anomalies,
+        summary=summary,
     )

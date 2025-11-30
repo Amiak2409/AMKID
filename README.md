@@ -1,7 +1,7 @@
 # 🌐 AMKID — AI Manipulation & Knowledge Integrity Detector
 
 <p align="center">
-  <img src="https://github.com/твой-ник/твой-репо/raw/main/assets/preview.gif" width="800">
+  <img src="https://github.com/Amiak2409/AMKID/raw/develop/img/sample.jpg" width="800">
 </p>
 ### 🚀 Next-generation AI system for detecting fake text, AI-generated images, manipulation, and misinformation
 

@@ -1,5 +1,10 @@
 // WelcomeSection.tsx
-import React, { useRef, useLayoutEffect } from "react";
+import React, {
+  useRef,
+  useLayoutEffect,
+  useEffect,
+  useState,
+} from "react";
 
 interface WelcomeSectionProps {
   value: string;
@@ -16,6 +21,10 @@ interface WelcomeSectionProps {
   isListening?: boolean;
   isSpeechAvailable?: boolean;
   currentLangCode?: "ru-RU" | "en-US";
+
+  // 📷 КАРТИНКА
+  attachedImage?: File | null;
+  onImageChange?: (file: File | null) => void;
 }
 
 export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
@@ -29,13 +38,35 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
   isListening,
   isSpeechAvailable,
   currentLangCode,
+  attachedImage,
+  onImageChange,
 }) => {
-  // 🎙 Микрофон показываем только до первого сабмита
-  const showVoiceButton = Boolean(onToggleVoice) && !hasSubmitted;
+  const hasImage = Boolean(attachedImage);
+
+  // 🎙 Микрофон показываем только до первого сабмита и пока нет картинки
+  const showVoiceButton = Boolean(onToggleVoice) && !hasSubmitted && !hasImage;
 
   // textarea используется только ПОСЛЕ сабмита (когда блок наверху)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+
+  // hidden input под картинку
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // превью (URL) для маленькой плашки
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!attachedImage) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(attachedImage);
+    setPreviewUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [attachedImage]);
 
   // 🔁 Авто-высота textarea после отправки: до ~3 строк, дальше scroll
   useLayoutEffect(() => {
@@ -55,7 +86,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
   }, [hasSubmitted, value]);
 
   // ⌨️ В режиме редактирования наверху:
-  // Enter (без Shift) = отправка, Shift+Enter при желании можно включить позже
+  // Enter (без Shift) = отправка
   const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (
     event,
   ) => {
@@ -66,6 +97,39 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
       }
     }
   };
+
+  // 📷 клик по иконке "прикрепить"
+  const handleImageButtonClick = () => {
+    if (!fileInputRef.current) return;
+    fileInputRef.current.click();
+  };
+
+  // 📷 выбор файла
+  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = (
+    event,
+  ) => {
+    if (!onImageChange) return;
+    const file = event.target.files?.[0] ?? null;
+
+    // можно только одну картинку — просто храним один файл
+    onImageChange(file);
+  };
+
+  // ❌ удалить картинку
+  const handleRemoveImage = () => {
+    if (onImageChange) {
+      onImageChange(null);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  // значение поля: если есть картинка — текст визуально не показываем
+  const inputValue = hasImage ? "" : value;
+
+  const isTextReadOnly =
+    hasImage || (hasSubmitted && !isEditing); // если картинка — всегда запрет текста
 
   return (
     <div className={`question-shell ${hasSubmitted ? "question-shell--pinned" : ""}`}>
@@ -80,24 +144,40 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
           ref={formRef}
         >
           <div className="hero-input-container">
+            {/* Скрытый инпут для картинки */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="image-input-hidden"
+              onChange={handleFileChange}
+            />
+
             {/* 
               ДО отправки: обычный однострочный <input>,
-              текст идёт в одну строку и прокручивается горизонтально
+              текст идёт в одну строку и прокручивается горизонтально.
+              Если прикреплена картинка — поле визуально пустое и readOnly.
             */}
             {!hasSubmitted && (
               <input
                 type="text"
                 className="hero-input"
-                placeholder="Type anything to begin…"
-                value={value}
-                readOnly={false}
-                onChange={onChange}
+                placeholder={
+                  hasImage ? "Image attached" : "Type anything to begin…"
+                }
+                value={inputValue}
+                readOnly={isTextReadOnly}
+                onChange={
+                  isTextReadOnly
+                    ? undefined
+                    : (onChange as React.ChangeEventHandler<HTMLInputElement>)
+                }
               />
             )}
 
             {/* 
-              ПОСЛЕ отправки (когда блок наверху): textarea,
-              фиксированная ширина, высота зависит от контента (до 3 строк)
+              ПОСЛЕ отправки (когда блок наверху): textarea.
+              Если есть картинка — текст не редактируем и не показываем.
             */}
             {hasSubmitted && (
               <textarea
@@ -105,17 +185,62 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
                 className={`hero-input ${
                   hasSubmitted && isEditing ? "hero-input--editing" : ""
                 }`}
-                placeholder=""
-                value={value}
-                readOnly={!isEditing}
-                onChange={isEditing ? onChange : undefined}
-                onKeyDown={isEditing ? handleKeyDown : undefined}
+                placeholder={hasImage ? "Image attached" : ""}
+                value={inputValue}
+                readOnly={isTextReadOnly}
+                onChange={
+                  isTextReadOnly
+                    ? undefined
+                    : (onChange as React.ChangeEventHandler<HTMLTextAreaElement>)
+                }
+                onKeyDown={isTextReadOnly ? undefined : handleKeyDown}
                 rows={1} // стартуем с одной строки, дальше растим через useLayoutEffect
               />
             )}
 
-            {/* КНОПКА РЕДАКТА ПОСЛЕ ОТПРАВКИ */}
-            {hasSubmitted && !isEditing && (
+            {/* 📷 КНОПКА ПРИКРЕПИТЬ КАРТИНКУ (только до первого сабмита) */}
+            {!hasSubmitted && (
+              <button
+                type="button"
+                className={[
+                  "image-button",
+                  hasImage ? "image-button--active" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={handleImageButtonClick}
+                aria-label={hasImage ? "Change attached image" : "Attach image"}
+              >
+                <span className="image-button__icon" aria-hidden="true">
+                  📷
+                </span>
+              </button>
+            )}
+
+            {/* Плашка с превью прикреплённой картинки */}
+            {hasImage && (
+              <button
+                type="button"
+                className="image-pill"
+                onClick={handleRemoveImage}
+                aria-label="Remove attached image"
+              >
+                {previewUrl && (
+                  <span className="image-pill__thumb">
+                    <img src={previewUrl} alt="Attached" />
+                  </span>
+                )}
+                <span className="image-pill__name">
+                  {attachedImage?.name ?? "Image attached"}
+                </span>
+                <span className="image-pill__remove" aria-hidden="true">
+                  ✕
+                </span>
+              </button>
+            )}
+
+            {/* КНОПКА РЕДАКТА ПОСЛЕ ОТПРАВКИ (только для текстовых сообщений) */}
+            {hasSubmitted && !isEditing && !hasImage && (
               <button
                 type="button"
                 className="edit-pill"
@@ -129,7 +254,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
               </button>
             )}
 
-            {/* МИКРОФОН ВНУТРИ ИНПУТА — только в приветственном состоянии */}
+            {/* МИКРОФОН ВНУТРИ ИНПУТА — только в приветственном состоянии и без картинки */}
             {showVoiceButton && (
               <button
                 type="button"

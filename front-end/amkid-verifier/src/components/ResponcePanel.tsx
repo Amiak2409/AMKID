@@ -4,7 +4,8 @@ import { RadialBarChart, RadialBar, PolarAngleAxis } from "recharts";
 interface ResponsePanelProps {
   show: boolean;
   assistantText: string;
-  onNewMessage?: () => void;
+  onNewMessage?: () => void,
+  mode?: "text" | "image";
 }
 
 interface ClaimEvaluationItem {
@@ -14,10 +15,10 @@ interface ClaimEvaluationItem {
 }
 
 interface AiAnalysisResponse {
-  trust_score: number; // 0–100
-  ai_likeliness: number; // 0–1
-  manipulation_score: number; // 0–1
-  emotion_intensity: number; // 0–1
+  trust_score?: number; // 0–100
+  ai_likeliness?: number; // 0–1
+  manipulation_score?: number; // 0–1
+  emotion_intensity?: number; // 0–1
   claims_evaluation?: ClaimEvaluationItem[];
   dangerous_phrases?: string[];
   summary?: string;
@@ -35,7 +36,12 @@ interface MetricDialProps {
 
 type RGB = [number, number, number];
 
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const clamp01 = (v: number) => {
+  if (!Number.isFinite(v)) {
+    return 0; // безопасный дефолт, если прилетело undefined / NaN
+  }
+  return Math.max(0, Math.min(1, v));
+};
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -155,13 +161,28 @@ const applyDangerToCss = (dangerLevel: number) => {
 
 // 0 → всё ок, 1 → всё очень плохо
 const computeDangerLevelFromAnalysis = (a: AiAnalysisResponse): number => {
-  const trustComponent = clamp01(1 - a.trust_score / 100); // ниже trust → опаснее
-  const manipulationComponent = clamp01(a.manipulation_score);
-  const emotionComponent = clamp01(a.emotion_intensity);
-  const phrasesComponent =
-    a.dangerous_phrases && a.dangerous_phrases.length > 0 ? 1 : 0;
+  // аккуратно достаём числовые значения или подставляем дефолты
+  const trustRaw =
+    typeof a.trust_score === "number" && Number.isFinite(a.trust_score)
+      ? a.trust_score
+      : 80; // если нет trust_score — считаем, что текст/картинка довольно ок
 
-  // базовая смесь
+  const manipulationRaw =
+    typeof a.manipulation_score === "number" && Number.isFinite(a.manipulation_score)
+      ? a.manipulation_score
+      : 0; // по умолчанию "нет манипуляции"
+
+  const emotionRaw =
+    typeof a.emotion_intensity === "number" && Number.isFinite(a.emotion_intensity)
+      ? a.emotion_intensity
+      : 0; // по умолчанию низкая эмоциональность
+
+  const trustComponent = clamp01(1 - trustRaw / 100); // ниже trust → опаснее
+  const manipulationComponent = clamp01(manipulationRaw);
+  const emotionComponent = clamp01(emotionRaw);
+  const phrasesComponent =
+    Array.isArray(a.dangerous_phrases) && a.dangerous_phrases.length > 0 ? 1 : 0;
+
   let danger =
     trustComponent * 0.4 +
     manipulationComponent * 0.3 +
@@ -170,25 +191,22 @@ const computeDangerLevelFromAnalysis = (a: AiAnalysisResponse): number => {
 
   danger = clamp01(danger);
 
-  // 🔥 "Явно плохой" текст — хотим почти гарантированно красно-бордовый фон
   const hasDangerousPhrases = (a.dangerous_phrases?.length ?? 0) > 0;
-  const lowTrust = a.trust_score <= 65;
-  const highManipulation = a.manipulation_score >= 0.4;
-  const veryHighEmotion = a.emotion_intensity >= 0.75;
+  const lowTrust = trustRaw <= 65;
+  const highManipulation = manipulationRaw >= 0.4;
+  const veryHighEmotion = emotionRaw >= 0.75;
 
   const clearlyBad = hasDangerousPhrases || lowTrust || highManipulation || veryHighEmotion;
 
   if (clearlyBad) {
-    // Минимальный уровень danger для "плохих" — сильно смещаем в красную зону
     danger = Math.max(danger, 0.8);
   }
 
-  // 💚 Очень безопасный текст — чуть поджимаем danger вниз
   const verySafe =
-    a.trust_score >= 90 &&
-    a.manipulation_score <= 0.1 &&
+    trustRaw >= 90 &&
+    manipulationRaw <= 0.1 &&
     !hasDangerousPhrases &&
-    a.emotion_intensity <= 0.3;
+    emotionRaw <= 0.3;
 
   if (verySafe) {
     danger = Math.min(danger, 0.18);
@@ -249,7 +267,9 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
   show,
   assistantText,
   onNewMessage,
+  mode = "text",
 }) => {
+  const isImageMode = mode === "image";
   const trimmed = assistantText.trim();
 
   // Берём только JSON-часть (между первой '{' и последней '}'), если она есть
@@ -286,6 +306,31 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
   }, [jsonSlice, isJsonCandidate]);
 
   const hasAnalysis = Boolean(analysis);
+  const hasTrustMetric =
+    !!analysis &&
+    typeof analysis.trust_score === "number" &&
+    Number.isFinite(analysis.trust_score);
+
+  const hasAiLikelinessMetric =
+    !!analysis &&
+    typeof analysis.ai_likeliness === "number" &&
+    Number.isFinite(analysis.ai_likeliness);
+
+  const hasManipulationMetric =
+    !!analysis &&
+    typeof analysis.manipulation_score === "number" &&
+    Number.isFinite(analysis.manipulation_score);
+
+  const hasEmotionMetric =
+    !!analysis &&
+    typeof analysis.emotion_intensity === "number" &&
+    Number.isFinite(analysis.emotion_intensity);
+
+  const hasAnyMetric =
+    hasTrustMetric ||
+    hasAiLikelinessMetric ||
+    hasManipulationMetric ||
+    hasEmotionMetric;
 
   // === состояния анимаций ===
   const [showMetrics, setShowMetrics] = useState(false);
@@ -449,9 +494,11 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
     <div className={`chat-shell ${show ? "chat-shell--visible" : ""}`}>
       <div className="chat-container glass-panel glass-panel--response">
         <div className="chat-header">
-          <div className="chat-header-title">Assistant analysis</div>
+          <div className="chat-header-title">{isImageMode ? "Image analysis" : "Assistant analysis"}</div>
           <div className="chat-header-subtitle">
-            AI-powered safety &amp; trust overview of your text
+            {isImageMode
+              ? "AI-powered safety & trust overview of your image"
+              : "AI-powered safety & trust overview of your text"}
           </div>
         </div>
 
@@ -467,33 +514,45 @@ export const ResponsePanel: React.FC<ResponsePanelProps> = ({
           {!isLoading && hasAnalysis && analysis && (
             <div className="analysis-layout">
               {/* METRICS */}
-              {showMetrics && (
-                <section className="analysis-section analysis-section--animated">
-                  <h3 className="analysis-section__title">Overall scores</h3>
-                  <div className="analysis-metrics-grid">
-                    <MetricDial
-                      label="Trust score"
-                      value={analysis.trust_score}
-                      color="#22d3ee"
-                    />
-                    <MetricDial
-                      label="AI likeliness"
-                      value={analysis.ai_likeliness * 100}
-                      color="#a855f7"
-                    />
-                    <MetricDial
-                      label="Manipulation"
-                      value={analysis.manipulation_score * 100}
-                      color="#fb7185"
-                    />
-                    <MetricDial
-                      label="Emotion intensity"
-                      value={analysis.emotion_intensity * 100}
-                      color="#f973ff"
-                    />
-                  </div>
-                </section>
-              )}
+              {showMetrics && hasAnyMetric && (
+  <section className="analysis-section analysis-section--animated">
+    <h3 className="analysis-section__title">Overall scores</h3>
+    <div className="analysis-metrics-grid">
+      {hasTrustMetric && analysis && (
+        <MetricDial
+          label="Trust score"
+          value={analysis.trust_score as number}
+          color="#22d3ee"
+        />
+      )}
+
+      {hasAiLikelinessMetric && analysis && (
+        <MetricDial
+          label="AI likeliness"
+          value={(analysis.ai_likeliness as number) * 100}
+          color="#a855f7"
+        />
+      )}
+
+      {hasManipulationMetric && analysis && (
+        <MetricDial
+          label="Manipulation"
+          value={(analysis.manipulation_score as number) * 100}
+          color="#fb7185"
+        />
+      )}
+
+      {hasEmotionMetric && analysis && (
+        <MetricDial
+          label="Emotion intensity"
+          value={(analysis.emotion_intensity as number) * 100}
+          color="#f973ff"
+        />
+      )}
+    </div>
+  </section>
+)}
+
 
               {/* DANGEROUS PHRASES */}
               {analysis.dangerous_phrases &&

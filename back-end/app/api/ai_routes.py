@@ -42,3 +42,51 @@ async def analyze_text_endpoint(
             status_code=500, 
             detail="Internal Server Error during AI processing and DB transaction."
         )
+    
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
+    
+    # Проверка на дубликат
+    if db.query(User).filter(User.username == user_data.username).first():
+        raise HTTPException(status_code=400, detail="Username already registered")
+
+    # Хеширование пароля
+    hashed_password = get_password_hash(user_data.password)
+
+    # Создание пользователя в БД
+    db_user = User(
+        username=user_data.username,
+        hashed_password=hashed_password
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+
+    # Создание JWT-токена для немедленного логина
+    access_token = create_access_token(
+        data={"sub": db_user.username, "user_id": str(db_user.id)},
+        expires_delta=timedelta(minutes=60)
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# 2. Логин (получение токена)
+@router.post("/login", response_model=Token)
+def login_for_access_token(user_data: UserLogin, db: Session = Depends(get_db)):
+    
+    # 1. Поиск и проверка пользователя
+    db_user = db.query(User).filter(User.username == user_data.username).first()
+    
+    if not db_user or not verify_password(user_data.password, db_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 2. Создание JWT-токена
+    access_token = create_access_token(
+        data={"sub": db_user.username, "user_id": str(db_user.id)},
+        expires_delta=timedelta(minutes=60)
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}

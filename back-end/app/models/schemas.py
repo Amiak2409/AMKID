@@ -30,3 +30,25 @@ class ImageAnalyzeResponse(BaseModel):
     anomalies: List[str]
     summary: str
 
+class UserBase(BaseModel):
+    username: str = Field(..., min_length=3, max_length=100)
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8)
+
+class UserLogin(UserCreate):
+    # Используем UserCreate, так как поля те же (username, password)
+    pass
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class UserInDB(UserBase):
+    # Модель для чтения из БД
+    id: uuid.UUID
+    hashed_password: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True

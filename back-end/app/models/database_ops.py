@@ -39,6 +39,8 @@ class User(Base):
 
     id: UUID = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: str = Column(String(100), unique=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
     created_at: datetime = Column(DateTime(timezone=True), default=datetime.now)
 
     # Отношение: Один пользователь может иметь много заявок (обратная связь)

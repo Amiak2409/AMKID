@@ -1,8 +1,12 @@
 import requests
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Замените на реальные значения API ZeroGPT
-API_KEY = "dafeb81f-7b14-4011-811c-062835beb88e"
+API_KEY = os.getenv("ZERO_API_KEY")
 API_ENDPOINT = "https://api.zerogpt.com/api/detect/detectText" # АДРЕС может отличаться
 
 text_to_analyze = """

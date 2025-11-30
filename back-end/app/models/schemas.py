@@ -1,5 +1,8 @@
-from pydantic import BaseModel
-from typing import List
+from datetime import datetime
+from typing import List, Dict, Any
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
 
 
 class TextAnalyzeRequest(BaseModel):
@@ -30,3 +33,16 @@ class ImageAnalyzeResponse(BaseModel):
     anomalies: List[str]
     summary: str
 
+
+class HistoryItem(BaseModel):
+    """
+    То, что отдаём на фронт в /history.
+    """
+    # Pydantic v2: включаем чтение из ORM-объектов
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID               # <--- раньше было str
+    question: str
+    raw_response: Dict[str, Any]
+    created_at: datetime
+    kind: str

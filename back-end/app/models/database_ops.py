@@ -64,7 +64,7 @@ class Submission(Base):
     content_text: Optional[str] = Column(Text, nullable=True) 
     
     # media_url TEXT
-    media_url: str = Column(Text, nullable=False)
+    media_url: Optional[str] = Column(Text, nullable=False)
     
     # status VARCHAR(20) DEFAULT 'pending'
     status: str = Column(String(20), default='pending', nullable=False)
@@ -92,7 +92,7 @@ class TrustScore(Base):
     submission_id: UUID = Column(UUID(as_uuid=True), ForeignKey('submissions.id'), nullable=False)
     
     # fake_probability FLOAT NOT NULL
-    fake_probability: float = Column(Float, nullable=False)
+    fake_probability: float = Column(Float, nullable=True)
     
     # verdict VARCHAR(50)
     verdict: str = Column(String(50), nullable=True)
@@ -142,7 +142,7 @@ def create_submission(db: Session, media_type: str, media_url: str, user_id: Opt
         media_url=media_url
     )
     db.add(new_submission)
-    db.commit()
+    db.flush()
     db.refresh(new_submission)
     return new_submission
 
@@ -194,7 +194,7 @@ def update_submission_status(db: Session, submission_id: UUID, new_status: str, 
         return submission
     return None
 
-def create_trust_score(db: Session, submission_id: UUID, fake_probability: float, verdict: str, ai_metadata: Dict[str, Any] = None, commit: bool = True) -> TrustScore:
+def create_trust_score(db: Session, submission_id: UUID, fake_probability: float, verdict: str, ai_metadata: Dict[str, Any] = None) -> TrustScore:
     """Создает запись результата анализа в таблице trust_scores."""
     new_score = TrustScore(
         submission_id=submission_id,
@@ -203,7 +203,7 @@ def create_trust_score(db: Session, submission_id: UUID, fake_probability: float
         ai_metadata=ai_metadata if ai_metadata is not None else {}
     )
     db.add(new_score)
-    db.commit()
+    db.flush() 
     db.refresh(new_score)
     return new_score
 

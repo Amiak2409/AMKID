@@ -200,6 +200,18 @@ def compute_trust_score(
     trust = max(0, min(100, int(round(trust))))
     return trust
 
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """
+    Безопасно преобразует значение в float, заменяя NaN, Inf и невалидные типы на default.
+    """
+    try:
+        f_value = float(value)
+        # Проверяем на NaN и Infinity, которые PostgreSQL не приемлет
+        if math.isnan(f_value) or math.isinf(f_value):
+            return default
+        return f_value
+    except (TypeError, ValueError):
+        return default
 
 # =====================================================================
 #                            OpenAI анализ текста
@@ -273,9 +285,9 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
             summary="Модель вернула некорректный формат данных.",
         )
 
-    ai_likeliness = float(data.get("ai_likeliness", 0.0))
-    manipulation_score = float(data.get("manipulation_score", 0.0))
-    emotion_intensity = float(data.get("emotion_intensity", 0.0))
+    ai_likeliness = safe_float(data.get("ai_likeliness", 0.0))
+    manipulation_score = safe_float(data.get("manipulation_score", 0.0))
+    emotion_intensity = safe_float(data.get("emotion_intensity", 0.0))
     dangerous_phrases_raw = data.get("dangerous_phrases", []) or []
     claims_raw = data.get("claims_evaluation", []) or []
     summary = data.get("summary", "") or ""
@@ -285,7 +297,7 @@ def analyze_text(content: str) -> TextAnalyzeResponse:
         claims.append(
             ClaimEvaluation(
                 text=str(c.get("text", "")),
-                true_likeliness=float(c.get("true_likeliness", 0.0)),
+                true_likeliness=safe_float(c.get("true_likeliness", 0.0)),
                 comment=str(c.get("comment", "")),
             )
         )

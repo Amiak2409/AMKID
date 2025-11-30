@@ -16,7 +16,26 @@ from app.models.database_ops import (
     User,
     Submission
 )
+# Используйте временный ID
+TEST_ID = str(uuid.uuid4())
 
+db = SessionLocal()
+try:
+    print("Attempting to create user...")
+    # Используйте вашу функцию создания пользователя
+    new_user = create_user(db, username="direct_test_user_" + TEST_ID, user_id=TEST_ID, commit=False)
+    
+    # 🚨 Явный коммит
+    db.commit()
+    print(f"SUCCESS! User created with ID: {new_user.id}")
+    
+    # Теперь проверьте БД DataGrip
+    
+except Exception as e:
+    db.rollback()
+    print(f"FAILED TO COMMIT DIRECTLY. Error: {e}")
+finally:
+    db.close()
 # --- ФИКСАТУРЫ PYTEST (Транзакционный подход) ---
 
 @pytest.fixture(scope="session", autouse=True)

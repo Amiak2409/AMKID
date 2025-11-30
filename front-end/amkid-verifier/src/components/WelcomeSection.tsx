@@ -1,3 +1,4 @@
+// WelcomeSection.tsx
 import React from "react";
 
 interface WelcomeSectionProps {
@@ -7,6 +8,12 @@ interface WelcomeSectionProps {
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (event: React.FormEvent) => void;
   onStartEdit: () => void;
+
+  // ГОЛОС
+  onToggleVoice?: () => void;
+  isListening?: boolean;
+  isSpeechAvailable?: boolean;
+  currentLangCode?: "ru-RU" | "en-US";
 }
 
 export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
@@ -16,7 +23,13 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
   onChange,
   onSubmit,
   onStartEdit,
+  onToggleVoice,
+  isListening,
+  isSpeechAvailable,
+  currentLangCode,
 }) => {
+  const showVoiceButton = Boolean(onToggleVoice);
+
   return (
     <div className={`question-shell ${hasSubmitted ? "question-shell--pinned" : ""}`}>
       <div className="question-inner">
@@ -37,6 +50,7 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
               onChange={!hasSubmitted || isEditing ? onChange : undefined}
             />
 
+            {/* КНОПКА РЕДАКТА ПОСЛЕ ОТПРАВКИ */}
             {hasSubmitted && !isEditing && (
               <button
                 type="button"
@@ -50,6 +64,34 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
                 <span className="edit-pill__label">Edit message</span>
               </button>
             )}
+
+            {/* МИКРОФОН ВНУТРИ ИНПУТА */}
+            {showVoiceButton && (
+              <button
+                type="button"
+                className={[
+                  "voice-button",
+                  isListening ? "voice-button--active" : "",
+                  isSpeechAvailable === false ? "voice-button--disabled" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={
+                  isSpeechAvailable === false || !onToggleVoice ? undefined : onToggleVoice
+                }
+                aria-label={
+                  isSpeechAvailable === false
+                    ? "Voice input is not supported in this browser"
+                    : isListening
+                    ? "Stop voice input"
+                    : "Start voice input"
+                }
+              >
+                <span className="voice-button__icon" aria-hidden="true">
+                  🎤
+                </span>
+              </button>
+            )}
           </div>
 
           {!hasSubmitted && (
@@ -58,6 +100,21 @@ export const WelcomeSection: React.FC<WelcomeSectionProps> = ({
             </button>
           )}
         </form>
+
+        {/* СТАТУС “СЕЙЧАС СЛУШАЮ” ПОД ИНПУТОМ */}
+        {isListening && (
+          <div className="voice-status">
+            <span className="voice-status__dot" />
+            <span className="voice-status__label">
+              Listening…
+              {currentLangCode && (
+                <span className="voice-status__lang">
+                  {currentLangCode === "ru-RU" ? "RU" : "EN"}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

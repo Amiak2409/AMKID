@@ -19,7 +19,7 @@
 
   --color-interactive: 175, 145, 255;
 
-  --circle-size: 70%;
+  --circle-size: 85%;
   --blending: screen;
 }
 
@@ -1732,7 +1732,7 @@ chat-result {
 }
 
 .glass-panel--history {
-  padding: 12px 14px;
+  padding: 22px 24px;
   border-radius: 22px;
   background: linear-gradient(
       135deg,
@@ -1819,7 +1819,7 @@ chat-result {
   background:
     radial-gradient(circle at 0% 0%, rgba(129, 140, 248, 0.18), transparent 55%),
     rgba(15, 23, 42, 0.9);
-  padding: 8px 10px;
+  padding: 16px 20px;
   text-align: left;
   cursor: pointer;
 
@@ -1854,6 +1854,7 @@ chat-result {
   align-items: flex-start;
   justify-content: space-between;
   gap: 6px;
+  margin-bottom: 5px;
 }
 
 .history-item__question {
@@ -2073,4 +2074,50 @@ chat-result {
 .image-pill:hover {
   border-color: rgba(191, 219, 254, 0.9);
   background: rgba(15, 23, 42, 1);
+}
+
+/* ========================= */
+/*  USER PILL IN TOP NAV     */
+/* ========================= */
+
+.nav-user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 0.4px rgba(255, 255, 255, 0.18);
+}
+
+.nav-user-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+
+  background: radial-gradient(
+      circle at 30% 0%,
+      rgba(216, 180, 254, 0.95),
+      rgba(129, 140, 248, 0.95)
+    );
+  color: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 0 14px rgba(129, 140, 248, 0.9);
+}
+
+.nav-user-name {
+  font-size: 12px;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(226, 232, 240, 0.96);
 }

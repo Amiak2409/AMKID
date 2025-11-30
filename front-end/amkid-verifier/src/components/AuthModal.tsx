@@ -1,5 +1,6 @@
 // components/AuthModal.tsx
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { login as apiLogin, signup as apiSignup } from "../api/chat";
 
 type AuthMode = "help" | "login" | "signup";
 
@@ -7,6 +8,8 @@ interface AuthModalProps {
   mode: AuthMode;
   onClose: () => void;
   onChangeMode: (mode: AuthMode) => void;
+  // 🔐 вызовем это после успешного login / signup
+  onAuthSuccess?: (email: string) => void;
 }
 
 interface LoginValues {
@@ -20,9 +23,17 @@ interface SignupValues {
   password: string;
 }
 
-const LoginForm: React.FC<{ onSubmit?: (values: LoginValues) => void }> = ({
-  onSubmit,
-}) => {
+interface LoginFormProps {
+  onSubmit?: (values: LoginValues) => void;
+  disabled?: boolean;
+}
+
+interface SignupFormProps {
+  onSubmit?: (values: SignupValues) => void;
+  disabled?: boolean;
+}
+
+const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, disabled }) => {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -52,6 +63,7 @@ const LoginForm: React.FC<{ onSubmit?: (values: LoginValues) => void }> = ({
           required
           className="auth-field__input"
           placeholder="you@example.com"
+          disabled={disabled}
         />
       </label>
 
@@ -64,19 +76,18 @@ const LoginForm: React.FC<{ onSubmit?: (values: LoginValues) => void }> = ({
           required
           className="auth-field__input"
           placeholder="••••••••"
+          disabled={disabled}
         />
       </label>
 
-      <button type="submit" className="auth-submit">
-        <span>Log in</span>
+      <button type="submit" className="auth-submit" disabled={disabled}>
+        <span>{disabled ? "Logging in..." : "Log in"}</span>
       </button>
     </form>
   );
 };
 
-const SignupForm: React.FC<{ onSubmit?: (values: SignupValues) => void }> = ({
-  onSubmit,
-}) => {
+const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, disabled }) => {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -107,6 +118,7 @@ const SignupForm: React.FC<{ onSubmit?: (values: SignupValues) => void }> = ({
           autoComplete="name"
           className="auth-field__input"
           placeholder="Your name"
+          disabled={disabled}
         />
       </label>
 
@@ -119,6 +131,7 @@ const SignupForm: React.FC<{ onSubmit?: (values: SignupValues) => void }> = ({
           required
           className="auth-field__input"
           placeholder="you@example.com"
+          disabled={disabled}
         />
       </label>
 
@@ -131,11 +144,12 @@ const SignupForm: React.FC<{ onSubmit?: (values: SignupValues) => void }> = ({
           required
           className="auth-field__input"
           placeholder="Create a password"
+          disabled={disabled}
         />
       </label>
 
-      <button type="submit" className="auth-submit">
-        <span>Sign up</span>
+      <button type="submit" className="auth-submit" disabled={disabled}>
+        <span>{disabled ? "Signing up..." : "Sign up"}</span>
       </button>
     </form>
   );
@@ -145,8 +159,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   mode,
   onClose,
   onChangeMode,
+  onAuthSuccess,
 }) => {
   const isAuthMode = mode === "login" || mode === "signup";
+
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Закрытие по Esc
   useEffect(() => {
@@ -159,14 +177,65 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const handleLoginSubmit = (values: LoginValues) => {
-    // Здесь потом можно вызвать fetch/axios к /login
-    console.log("[Auth] Login submit (ready for backend wiring)", values);
+  // При переключении режимов очищаем ошибку
+  useEffect(() => {
+    setAuthError(null);
+  }, [mode]);
+
+  const handleLoginSubmit = async (values: LoginValues) => {
+    try {
+      setAuthError(null);
+      setIsSubmitting(true);
+
+      const result = await apiLogin({
+        email: values.email,
+        password: values.password,
+      });
+
+      console.log("[Auth] Login success", result);
+
+      // сообщаем App, что авторизация прошла
+      if (onAuthSuccess) {
+        onAuthSuccess(values.email);
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("[Auth] Login error", error);
+      const message =
+        error instanceof Error ? error.message : "Failed to log in";
+      setAuthError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSignupSubmit = (values: SignupValues) => {
-    // Здесь потом можно вызвать fetch/axios к /signup
-    console.log("[Auth] Sign up submit (ready for backend wiring)", values);
+  const handleSignupSubmit = async (values: SignupValues) => {
+    try {
+      setAuthError(null);
+      setIsSubmitting(true);
+
+      const result = await apiSignup({
+        email: values.email,
+        password: values.password,
+        name: values.name,
+      });
+
+      console.log("[Auth] Sign up success", result);
+
+      if (onAuthSuccess) {
+        onAuthSuccess(values.email);
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("[Auth] Sign up error", error);
+      const message =
+        error instanceof Error ? error.message : "Failed to sign up";
+      setAuthError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const title =
@@ -272,14 +341,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <p className="auth-subtitle">
               {mode === "login"
-                ? "Use your email and password. Later we can connect this form to your backend API."
+                ? "Use your email and password to access your AMKID account."
                 : "Create a simple account so AMKID can save your analysis history and preferences."}
             </p>
 
+            {authError && (
+              <p className="auth-error" role="alert">
+                {authError}
+              </p>
+            )}
+
             {mode === "login" ? (
-              <LoginForm onSubmit={handleLoginSubmit} />
+              <LoginForm onSubmit={handleLoginSubmit} disabled={isSubmitting} />
             ) : (
-              <SignupForm onSubmit={handleSignupSubmit} />
+              <SignupForm
+                onSubmit={handleSignupSubmit}
+                disabled={isSubmitting}
+              />
             )}
           </>
         )}
